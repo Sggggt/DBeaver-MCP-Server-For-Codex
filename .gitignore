@@ -1,0 +1,39 @@
+# Local configuration and DBeaver state
+.env
+.env.*
+!.env.example
+.dbeaver/
+.dbeaver-workspace/
+
+# Python environments, caches, and build output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local data and logs
+*.log
+*.csv
+*.tsv
+*.xlsx
+*.parquet
+*.jsonl
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+tests/
+test-results/
+.tox/
+.nox/
+coverage.xml
