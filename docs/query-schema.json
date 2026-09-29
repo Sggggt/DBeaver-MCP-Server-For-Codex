@@ -1,0 +1,1884 @@
+{
+  "type": "object",
+  "properties": {
+    "table": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63
+    },
+    "schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63
+    },
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63
+    },
+    "only": {
+      "type": "boolean"
+    },
+    "from": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "call": {
+              "enum": [
+                "generate_series",
+                "unnest",
+                "json_array_elements",
+                "jsonb_array_elements",
+                "json_array_elements_text",
+                "jsonb_array_elements_text",
+                "json_each",
+                "jsonb_each",
+                "json_each_text",
+                "jsonb_each_text",
+                "json_object_keys",
+                "jsonb_object_keys"
+              ]
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 20,
+              "minItems": 0
+            }
+          },
+          "required": [
+            "call"
+          ],
+          "additionalProperties": false
+        },
+        "only": {
+          "type": "boolean"
+        },
+        "query": {
+          "$ref": "#/$defs/query"
+        },
+        "cte": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/expression"
+            },
+            "maxItems": 100,
+            "minItems": 1
+          },
+          "maxItems": 500,
+          "minItems": 1
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "maxItems": 100,
+          "minItems": 1
+        }
+      },
+      "required": [
+        "alias"
+      ],
+      "additionalProperties": false
+    },
+    "columns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "column": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "as": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          }
+        },
+        "required": [
+          "source",
+          "column"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100,
+      "minItems": 0
+    },
+    "select": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "expr": {
+            "$ref": "#/$defs/expression"
+          },
+          "as": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          }
+        },
+        "required": [
+          "expr",
+          "as"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100,
+      "minItems": 0
+    },
+    "aggregates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "function": {
+            "enum": [
+              "count",
+              "sum",
+              "avg",
+              "min",
+              "max",
+              "bool_and",
+              "bool_or",
+              "every",
+              "stddev",
+              "stddev_pop",
+              "stddev_samp",
+              "variance",
+              "var_pop",
+              "var_samp",
+              "string_agg",
+              "array_agg",
+              "json_agg",
+              "jsonb_agg",
+              "json_object_agg",
+              "jsonb_object_agg",
+              "percentile_cont",
+              "percentile_disc",
+              "mode",
+              "corr",
+              "covar_pop",
+              "covar_samp"
+            ]
+          },
+          "field": {
+            "$ref": "#/$defs/expression"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/expression"
+            },
+            "maxItems": 4,
+            "minItems": 0
+          },
+          "distinct": {
+            "type": "boolean"
+          },
+          "as": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "filter": {
+            "$ref": "#/$defs/filter"
+          },
+          "order_by": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 63
+                },
+                "expr": {
+                  "$ref": "#/$defs/expression"
+                },
+                "direction": {
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ]
+                },
+                "nulls": {
+                  "enum": [
+                    "first",
+                    "last"
+                  ]
+                }
+              },
+              "required": [
+                "direction"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 10,
+            "minItems": 0
+          }
+        },
+        "required": [
+          "function",
+          "as"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 30,
+      "minItems": 0
+    },
+    "joins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "function": {
+            "type": "object",
+            "properties": {
+              "call": {
+                "enum": [
+                  "generate_series",
+                  "unnest",
+                  "json_array_elements",
+                  "jsonb_array_elements",
+                  "json_array_elements_text",
+                  "jsonb_array_elements_text",
+                  "json_each",
+                  "jsonb_each",
+                  "json_each_text",
+                  "jsonb_each_text",
+                  "json_object_keys",
+                  "jsonb_object_keys"
+                ]
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/expression"
+                },
+                "maxItems": 20,
+                "minItems": 0
+              }
+            },
+            "required": [
+              "call"
+            ],
+            "additionalProperties": false
+          },
+          "only": {
+            "type": "boolean"
+          },
+          "query": {
+            "$ref": "#/$defs/query"
+          },
+          "cte": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 100,
+              "minItems": 1
+            },
+            "maxItems": 500,
+            "minItems": 1
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "maxItems": 100,
+            "minItems": 1
+          },
+          "kind": {
+            "enum": [
+              "inner",
+              "left",
+              "right",
+              "full",
+              "cross"
+            ]
+          },
+          "on": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/filter"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "left": {
+                      "$ref": "#/$defs/expression"
+                    },
+                    "right": {
+                      "$ref": "#/$defs/expression"
+                    }
+                  },
+                  "required": [
+                    "left",
+                    "right"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 20,
+                "minItems": 1
+              }
+            ]
+          },
+          "using": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "maxItems": 20,
+            "minItems": 1
+          },
+          "lateral": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "alias",
+          "kind"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 12,
+      "minItems": 0
+    },
+    "where": {
+      "$ref": "#/$defs/filter"
+    },
+    "group_by": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/expression"
+      },
+      "maxItems": 50,
+      "minItems": 0
+    },
+    "having": {
+      "$ref": "#/$defs/filter"
+    },
+    "order_by": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "expr": {
+            "$ref": "#/$defs/expression"
+          },
+          "direction": {
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "nulls": {
+            "enum": [
+              "first",
+              "last"
+            ]
+          }
+        },
+        "required": [
+          "direction"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 30,
+      "minItems": 0
+    },
+    "distinct": {
+      "type": "boolean"
+    },
+    "distinct_on": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/expression"
+      },
+      "maxItems": 20,
+      "minItems": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "with": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "query": {
+            "$ref": "#/$defs/query"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "maxItems": 100,
+            "minItems": 1
+          },
+          "materialized": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 16,
+      "minItems": 0
+    },
+    "recursive": {
+      "type": "boolean"
+    },
+    "set": {
+      "type": "object",
+      "properties": {
+        "op": {
+          "enum": [
+            "union",
+            "union_all",
+            "intersect",
+            "intersect_all",
+            "except",
+            "except_all"
+          ]
+        },
+        "queries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/query"
+          },
+          "maxItems": 8,
+          "minItems": 2
+        }
+      },
+      "required": [
+        "op",
+        "queries"
+      ],
+      "additionalProperties": false
+    },
+    "values": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/expression"
+        },
+        "maxItems": 100,
+        "minItems": 1
+      },
+      "maxItems": 500,
+      "minItems": 1
+    },
+    "value_columns": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 63
+      },
+      "maxItems": 100,
+      "minItems": 1
+    }
+  },
+  "required": [],
+  "additionalProperties": false,
+  "$defs": {
+    "expression": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "column": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            }
+          },
+          "required": [
+            "source",
+            "column"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null",
+                "array",
+                "object"
+              ]
+            },
+            "type": {
+              "enum": [
+                "text",
+                "varchar",
+                "bool",
+                "int2",
+                "int4",
+                "int8",
+                "numeric",
+                "float4",
+                "float8",
+                "date",
+                "time",
+                "timestamp",
+                "timestamptz",
+                "interval",
+                "uuid",
+                "json",
+                "jsonb",
+                "bytea",
+                "inet",
+                "cidr",
+                "text[]",
+                "int4[]",
+                "int8[]",
+                "numeric[]",
+                "jsonb[]",
+                "uuid[]"
+              ]
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "call": {
+              "enum": [
+                "generate_series",
+                "unnest",
+                "json_array_elements",
+                "jsonb_array_elements",
+                "json_array_elements_text",
+                "jsonb_array_elements_text",
+                "json_each",
+                "jsonb_each",
+                "json_each_text",
+                "jsonb_each_text",
+                "json_object_keys",
+                "jsonb_object_keys",
+                "abs",
+                "ceil",
+                "ceiling",
+                "floor",
+                "round",
+                "trunc",
+                "sqrt",
+                "power",
+                "mod",
+                "sign",
+                "exp",
+                "ln",
+                "log",
+                "lower",
+                "upper",
+                "length",
+                "char_length",
+                "octet_length",
+                "btrim",
+                "ltrim",
+                "rtrim",
+                "substring",
+                "substr",
+                "replace",
+                "split_part",
+                "concat",
+                "concat_ws",
+                "left",
+                "right",
+                "repeat",
+                "reverse",
+                "strpos",
+                "regexp_replace",
+                "regexp_match",
+                "regexp_matches",
+                "coalesce",
+                "nullif",
+                "greatest",
+                "least",
+                "date_trunc",
+                "date_part",
+                "age",
+                "to_char",
+                "to_date",
+                "to_timestamp",
+                "make_date",
+                "make_timestamp",
+                "now",
+                "clock_timestamp",
+                "statement_timestamp",
+                "transaction_timestamp",
+                "current_date",
+                "current_timestamp",
+                "current_database",
+                "current_schema",
+                "current_user",
+                "session_user",
+                "pg_backend_pid",
+                "json_extract_path",
+                "json_extract_path_text",
+                "jsonb_extract_path",
+                "jsonb_extract_path_text",
+                "json_array_length",
+                "jsonb_array_length",
+                "json_typeof",
+                "jsonb_typeof",
+                "to_json",
+                "to_jsonb",
+                "json_build_object",
+                "jsonb_build_object",
+                "json_build_array",
+                "jsonb_build_array",
+                "array_length",
+                "array_lower",
+                "array_upper",
+                "cardinality",
+                "array_position",
+                "array_positions",
+                "array_to_string",
+                "string_to_array",
+                "encode",
+                "decode"
+              ]
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 20,
+              "minItems": 0
+            }
+          },
+          "required": [
+            "call"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "enum": [
+                "add",
+                "sub",
+                "mul",
+                "div",
+                "mod",
+                "concat",
+                "json_get",
+                "json_text",
+                "json_path",
+                "json_path_text",
+                "contains",
+                "contained_by",
+                "overlap"
+              ]
+            },
+            "left": {
+              "$ref": "#/$defs/expression"
+            },
+            "right": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "op",
+            "left",
+            "right"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "cast": {
+              "enum": [
+                "text",
+                "varchar",
+                "bool",
+                "int2",
+                "int4",
+                "int8",
+                "numeric",
+                "float4",
+                "float8",
+                "date",
+                "time",
+                "timestamp",
+                "timestamptz",
+                "interval",
+                "uuid",
+                "json",
+                "jsonb",
+                "bytea",
+                "inet",
+                "cidr",
+                "text[]",
+                "int4[]",
+                "int8[]",
+                "numeric[]",
+                "jsonb[]",
+                "uuid[]"
+              ]
+            },
+            "expr": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "cast",
+            "expr"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "case": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "when": {
+                    "$ref": "#/$defs/filter"
+                  },
+                  "then": {
+                    "$ref": "#/$defs/expression"
+                  }
+                },
+                "required": [
+                  "when",
+                  "then"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 20,
+              "minItems": 1
+            },
+            "else": {
+              "$ref": "#/$defs/expression"
+            }
+          },
+          "required": [
+            "case"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "aggregate": {
+              "enum": [
+                "count",
+                "sum",
+                "avg",
+                "min",
+                "max",
+                "bool_and",
+                "bool_or",
+                "every",
+                "stddev",
+                "stddev_pop",
+                "stddev_samp",
+                "variance",
+                "var_pop",
+                "var_samp",
+                "string_agg",
+                "array_agg",
+                "json_agg",
+                "jsonb_agg",
+                "json_object_agg",
+                "jsonb_object_agg",
+                "percentile_cont",
+                "percentile_disc",
+                "mode",
+                "corr",
+                "covar_pop",
+                "covar_samp"
+              ]
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 4,
+              "minItems": 0
+            },
+            "distinct": {
+              "type": "boolean"
+            },
+            "filter": {
+              "$ref": "#/$defs/filter"
+            },
+            "order_by": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63
+                  },
+                  "expr": {
+                    "$ref": "#/$defs/expression"
+                  },
+                  "direction": {
+                    "enum": [
+                      "asc",
+                      "desc"
+                    ]
+                  },
+                  "nulls": {
+                    "enum": [
+                      "first",
+                      "last"
+                    ]
+                  }
+                },
+                "required": [
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 10,
+              "minItems": 0
+            },
+            "within_group": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63
+                  },
+                  "expr": {
+                    "$ref": "#/$defs/expression"
+                  },
+                  "direction": {
+                    "enum": [
+                      "asc",
+                      "desc"
+                    ]
+                  },
+                  "nulls": {
+                    "enum": [
+                      "first",
+                      "last"
+                    ]
+                  }
+                },
+                "required": [
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 4,
+              "minItems": 0
+            }
+          },
+          "required": [
+            "aggregate"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "window": {
+              "enum": [
+                "row_number",
+                "rank",
+                "dense_rank",
+                "percent_rank",
+                "cume_dist",
+                "ntile",
+                "lag",
+                "lead",
+                "first_value",
+                "last_value",
+                "nth_value",
+                "count",
+                "sum",
+                "avg",
+                "min",
+                "max",
+                "bool_and",
+                "bool_or",
+                "array_agg",
+                "string_agg"
+              ]
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 4,
+              "minItems": 0
+            },
+            "partition_by": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 20,
+              "minItems": 0
+            },
+            "order_by": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63
+                  },
+                  "expr": {
+                    "$ref": "#/$defs/expression"
+                  },
+                  "direction": {
+                    "enum": [
+                      "asc",
+                      "desc"
+                    ]
+                  },
+                  "nulls": {
+                    "enum": [
+                      "first",
+                      "last"
+                    ]
+                  }
+                },
+                "required": [
+                  "direction"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 10,
+              "minItems": 0
+            },
+            "frame": {
+              "type": "object",
+              "properties": {
+                "unit": {
+                  "enum": [
+                    "rows",
+                    "range",
+                    "groups"
+                  ]
+                },
+                "start": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "unbounded_preceding",
+                        "preceding",
+                        "current_row",
+                        "following",
+                        "unbounded_following"
+                      ]
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100000
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                "end": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "unbounded_preceding",
+                        "preceding",
+                        "current_row",
+                        "following",
+                        "unbounded_following"
+                      ]
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100000
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "unit",
+                "start",
+                "end"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "window"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "subquery": {
+              "$ref": "#/$defs/query"
+            }
+          },
+          "required": [
+            "subquery"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "array": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 100,
+              "minItems": 0
+            }
+          },
+          "required": [
+            "array"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "output": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            }
+          },
+          "required": [
+            "output"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "filter": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "field": {
+              "$ref": "#/$defs/expression"
+            },
+            "left": {
+              "$ref": "#/$defs/expression"
+            },
+            "op": {
+              "enum": [
+                "eq",
+                "ne",
+                "lt",
+                "le",
+                "gt",
+                "ge",
+                "in",
+                "not_in",
+                "between",
+                "not_between",
+                "like",
+                "ilike",
+                "not_like",
+                "not_ilike",
+                "regex",
+                "iregex",
+                "not_regex",
+                "not_iregex",
+                "is_null",
+                "is_not_null",
+                "is_distinct",
+                "is_not_distinct",
+                "contains",
+                "contained_by",
+                "overlap",
+                "in_query",
+                "not_in_query"
+              ]
+            },
+            "value": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null",
+                "array",
+                "object"
+              ]
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null",
+                  "array",
+                  "object"
+                ]
+              },
+              "maxItems": 200,
+              "minItems": 1
+            },
+            "right": {
+              "$ref": "#/$defs/expression"
+            },
+            "query": {
+              "$ref": "#/$defs/query"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "combine": {
+              "enum": [
+                "and",
+                "or",
+                "not"
+              ]
+            },
+            "conditions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/filter"
+              },
+              "maxItems": 50,
+              "minItems": 1
+            }
+          },
+          "required": [
+            "combine",
+            "conditions"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "exists": {
+              "$ref": "#/$defs/query"
+            },
+            "not": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "exists"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "query": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "only": {
+          "type": "boolean"
+        },
+        "from": {
+          "type": "object",
+          "properties": {
+            "table": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "alias": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "function": {
+              "type": "object",
+              "properties": {
+                "call": {
+                  "enum": [
+                    "generate_series",
+                    "unnest",
+                    "json_array_elements",
+                    "jsonb_array_elements",
+                    "json_array_elements_text",
+                    "jsonb_array_elements_text",
+                    "json_each",
+                    "jsonb_each",
+                    "json_each_text",
+                    "jsonb_each_text",
+                    "json_object_keys",
+                    "jsonb_object_keys"
+                  ]
+                },
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/expression"
+                  },
+                  "maxItems": 20,
+                  "minItems": 0
+                }
+              },
+              "required": [
+                "call"
+              ],
+              "additionalProperties": false
+            },
+            "only": {
+              "type": "boolean"
+            },
+            "query": {
+              "$ref": "#/$defs/query"
+            },
+            "cte": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/expression"
+                },
+                "maxItems": 100,
+                "minItems": 1
+              },
+              "maxItems": 500,
+              "minItems": 1
+            },
+            "columns": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "maxItems": 100,
+              "minItems": 1
+            }
+          },
+          "required": [
+            "alias"
+          ],
+          "additionalProperties": false
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "column": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "as": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              }
+            },
+            "required": [
+              "source",
+              "column"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100,
+          "minItems": 0
+        },
+        "select": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "expr": {
+                "$ref": "#/$defs/expression"
+              },
+              "as": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              }
+            },
+            "required": [
+              "expr",
+              "as"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100,
+          "minItems": 0
+        },
+        "aggregates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "function": {
+                "enum": [
+                  "count",
+                  "sum",
+                  "avg",
+                  "min",
+                  "max",
+                  "bool_and",
+                  "bool_or",
+                  "every",
+                  "stddev",
+                  "stddev_pop",
+                  "stddev_samp",
+                  "variance",
+                  "var_pop",
+                  "var_samp",
+                  "string_agg",
+                  "array_agg",
+                  "json_agg",
+                  "jsonb_agg",
+                  "json_object_agg",
+                  "jsonb_object_agg",
+                  "percentile_cont",
+                  "percentile_disc",
+                  "mode",
+                  "corr",
+                  "covar_pop",
+                  "covar_samp"
+                ]
+              },
+              "field": {
+                "$ref": "#/$defs/expression"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/expression"
+                },
+                "maxItems": 4,
+                "minItems": 0
+              },
+              "distinct": {
+                "type": "boolean"
+              },
+              "as": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "filter": {
+                "$ref": "#/$defs/filter"
+              },
+              "order_by": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 63
+                    },
+                    "expr": {
+                      "$ref": "#/$defs/expression"
+                    },
+                    "direction": {
+                      "enum": [
+                        "asc",
+                        "desc"
+                      ]
+                    },
+                    "nulls": {
+                      "enum": [
+                        "first",
+                        "last"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "direction"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 10,
+                "minItems": 0
+              }
+            },
+            "required": [
+              "function",
+              "as"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 30,
+          "minItems": 0
+        },
+        "joins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "table": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "schema": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "alias": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "function": {
+                "type": "object",
+                "properties": {
+                  "call": {
+                    "enum": [
+                      "generate_series",
+                      "unnest",
+                      "json_array_elements",
+                      "jsonb_array_elements",
+                      "json_array_elements_text",
+                      "jsonb_array_elements_text",
+                      "json_each",
+                      "jsonb_each",
+                      "json_each_text",
+                      "jsonb_each_text",
+                      "json_object_keys",
+                      "jsonb_object_keys"
+                    ]
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/expression"
+                    },
+                    "maxItems": 20,
+                    "minItems": 0
+                  }
+                },
+                "required": [
+                  "call"
+                ],
+                "additionalProperties": false
+              },
+              "only": {
+                "type": "boolean"
+              },
+              "query": {
+                "$ref": "#/$defs/query"
+              },
+              "cte": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/expression"
+                  },
+                  "maxItems": 100,
+                  "minItems": 1
+                },
+                "maxItems": 500,
+                "minItems": 1
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 63
+                },
+                "maxItems": 100,
+                "minItems": 1
+              },
+              "kind": {
+                "enum": [
+                  "inner",
+                  "left",
+                  "right",
+                  "full",
+                  "cross"
+                ]
+              },
+              "on": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/filter"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "left": {
+                          "$ref": "#/$defs/expression"
+                        },
+                        "right": {
+                          "$ref": "#/$defs/expression"
+                        }
+                      },
+                      "required": [
+                        "left",
+                        "right"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 20,
+                    "minItems": 1
+                  }
+                ]
+              },
+              "using": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 63
+                },
+                "maxItems": 20,
+                "minItems": 1
+              },
+              "lateral": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "alias",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 12,
+          "minItems": 0
+        },
+        "where": {
+          "$ref": "#/$defs/filter"
+        },
+        "group_by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/expression"
+          },
+          "maxItems": 50,
+          "minItems": 0
+        },
+        "having": {
+          "$ref": "#/$defs/filter"
+        },
+        "order_by": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "expr": {
+                "$ref": "#/$defs/expression"
+              },
+              "direction": {
+                "enum": [
+                  "asc",
+                  "desc"
+                ]
+              },
+              "nulls": {
+                "enum": [
+                  "first",
+                  "last"
+                ]
+              }
+            },
+            "required": [
+              "direction"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 30,
+          "minItems": 0
+        },
+        "distinct": {
+          "type": "boolean"
+        },
+        "distinct_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/expression"
+          },
+          "maxItems": 20,
+          "minItems": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000000
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "with": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 63
+              },
+              "query": {
+                "$ref": "#/$defs/query"
+              },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 63
+                },
+                "maxItems": 100,
+                "minItems": 1
+              },
+              "materialized": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "query"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "recursive": {
+          "type": "boolean"
+        },
+        "set": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "enum": [
+                "union",
+                "union_all",
+                "intersect",
+                "intersect_all",
+                "except",
+                "except_all"
+              ]
+            },
+            "queries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/query"
+              },
+              "maxItems": 8,
+              "minItems": 2
+            }
+          },
+          "required": [
+            "op",
+            "queries"
+          ],
+          "additionalProperties": false
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/expression"
+            },
+            "maxItems": 100,
+            "minItems": 1
+          },
+          "maxItems": 500,
+          "minItems": 1
+        },
+        "value_columns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 63
+          },
+          "maxItems": 100,
+          "minItems": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}
