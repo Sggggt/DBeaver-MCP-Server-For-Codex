@@ -14,13 +14,19 @@ from psycopg import sql
 from psycopg.rows import dict_row, tuple_row
 from psycopg.types.json import set_json_loads
 
+from ...core.adapter import DatabaseAdapter
+from ...core.connection import DBeaverConnection
+from ...core.errors import (
+    error_stage,
+    register_error_translator,
+    translate_error,
+)
 from .catalog_guard import CatalogGuard
-from .config import Settings
-from .dbeaver import DBeaverConnection, DBeaverConnectionStore
-from .errors import error_stage, safe_error_message, translate_error
+from .connection import parse_configuration
+from .errors import translate_database_error
 from .query import BuiltQuery, QueryRejected, compile_query, requested_relations
 
-__all__ = ["DatabaseService", "safe_error_message"]
+register_error_translator(translate_database_error)
 
 RELKIND_NAMES = {
     "r": "table",
@@ -31,24 +37,40 @@ RELKIND_NAMES = {
 }
 
 
-class DatabaseService:
-    def __init__(
-        self,
-        settings: Settings,
-        store: DBeaverConnectionStore | None = None,
-    ):
-        self.settings = settings
-        self.store = store or DBeaverConnectionStore(settings)
+class PostgreSQLAdapter(DatabaseAdapter):
+    database_type = "postgresql"
+    parse_configuration = staticmethod(parse_configuration)
+
+    @classmethod
+    def capabilities(cls):
+        from ...core.query_schema import AGGREGATES, FUNCTIONS, OPS, TYPES, WINDOWS
+
+        return {
+            "database_type": cls.database_type,
+            "functions": FUNCTIONS,
+            "aggregates": AGGREGATES,
+            "windows": WINDOWS,
+            "conditions": OPS,
+            "casts": TYPES,
+            "object_types": list(RELKIND_NAMES.values()),
+            "explain": True,
+            "database_settings": True,
+            "postgresql_logs": True,
+            "unsupported": [
+                "unverified remote FDW side effects",
+                "untrusted executable dependencies",
+            ],
+        }
 
     @contextmanager
     def _connection(
         self,
-        identifier: str,
+        identifier: DBeaverConnection,
         database: str = "",
         schema: str = "",
     ) -> Iterator[tuple[psycopg.Connection[Any], DBeaverConnection, dict[str, Any]]]:
         with error_stage("resolve_connection"):
-            root = self.store.resolve(identifier)
+            root = identifier
         target_database = database.strip() or root.database
         if target_database != root.database:
             with self._open_connection(root) as (discovery, _, _):
@@ -204,57 +226,12 @@ class DatabaseService:
             "database": context["database"],
             "schema": context["schema"],
             "connection_source": "DBeaver workspace",
+            "database_type": "postgresql",
             **payload,
         }
 
-    def configured_context(
-        self,
-        identifier: str,
-        database: str = "",
-        schema: str = "",
-    ) -> dict[str, Any]:
-        with error_stage("resolve_connection"):
-            root = self.store.resolve(identifier)
-        source = root.for_database(database or root.database)
-        return source.model_identity(
-            schema or source.default_schema or "DBeaver default"
-        )
-
-    def list_connections(self) -> dict[str, Any]:
-        connections: list[dict[str, Any]] = []
-        for source in self.store.connections():
-            with self._connection(source.connection_id, source.database) as (
-                connection,
-                _,
-                context,
-            ):
-                databases = self._visible_databases(connection)
-            connections.append(
-                {
-                    "connection_id": context["connection_id"],
-                    "connection_name": context["connection_name"],
-                    "default_database": source.database,
-                    "default_schema": source.default_schema or context["schema"],
-                    "database": context["database"],
-                    "schema": context["schema"],
-                    "databases": databases,
-                    "database_count": len(databases),
-                    "provider": source.provider,
-                    "driver": source.driver,
-                    "dbeaver_read_only_flag": source.dbeaver_read_only,
-                    "mcp_enforced_read_only": True,
-                }
-            )
-        return {
-            "connection_source": "DBeaver workspace",
-            "connections": connections,
-            "returned": len(connections),
-            "credentials_exposed": False,
-            "addresses_exposed": False,
-        }
-
-    def list_databases(self, identifier: str) -> dict[str, Any]:
-        source = self.store.resolve(identifier)
+    def list_databases(self, identifier: DBeaverConnection) -> dict[str, Any]:
+        source = identifier
         with self._connection(identifier, source.database) as (connection, _, context):
             databases = self._visible_databases(connection)
         return self._response(
@@ -264,7 +241,9 @@ class DatabaseService:
             returned=len(databases),
         )
 
-    def list_schemas(self, identifier: str, database: str) -> dict[str, Any]:
+    def list_schemas(
+        self, identifier: DBeaverConnection, database: str
+    ) -> dict[str, Any]:
         if not database.strip():
             raise ValueError("database is required")
         with self._connection(identifier, database) as (connection, _, context):
@@ -304,7 +283,7 @@ class DatabaseService:
     def _visible_schemas(connection: psycopg.Connection[Any]) -> list[str]:
         return [
             item["name"]
-            for item in DatabaseService._visible_schema_contexts(connection)
+            for item in PostgreSQLAdapter._visible_schema_contexts(connection)
         ]
 
     @staticmethod
@@ -334,7 +313,7 @@ class DatabaseService:
                 for row in cursor.fetchall()
             ]
 
-    def status(self, identifier: str, database: str) -> dict[str, Any]:
+    def status(self, identifier: DBeaverConnection, database: str) -> dict[str, Any]:
         if not database.strip():
             raise ValueError("database is required")
         with self._connection(identifier, database) as (connection, source, context):
@@ -374,7 +353,7 @@ class DatabaseService:
 
     def scan_database(
         self,
-        identifier: str,
+        identifier: DBeaverConnection,
         database: str,
         schema: str,
         *,
@@ -453,7 +432,7 @@ class DatabaseService:
 
     def search_catalog(
         self,
-        identifier: str,
+        identifier: DBeaverConnection,
         database: str,
         query: str,
         *,
@@ -530,7 +509,7 @@ class DatabaseService:
         )
 
     def table_context(
-        self, identifier: str, database: str, schema: str, table: str
+        self, identifier: DBeaverConnection, database: str, schema: str, table: str
     ) -> dict[str, Any]:
         if not database.strip() or not schema.strip() or not table.strip():
             raise ValueError("database, schema, and table are required")
@@ -690,7 +669,7 @@ class DatabaseService:
             "Subplan Name",
         }
         if isinstance(node, list):
-            return [DatabaseService._safe_plan(item) for item in node]
+            return [PostgreSQLAdapter._safe_plan(item) for item in node]
         if not isinstance(node, dict):
             return None
         result = {}
@@ -701,7 +680,7 @@ class DatabaseService:
             elif key in names and isinstance(value, str):
                 result[key] = value[:200]
             elif key in {"Plans", "Plan"}:
-                result[key] = DatabaseService._safe_plan(value)
+                result[key] = PostgreSQLAdapter._safe_plan(value)
             else:
                 omitted.append(key)
         if omitted:
@@ -710,7 +689,7 @@ class DatabaseService:
 
     def structured_query(
         self,
-        identifier: str,
+        identifier: DBeaverConnection,
         database: str,
         schema: str,
         query: dict[str, Any],
@@ -828,7 +807,7 @@ class DatabaseService:
         )
 
     def read_postgresql_logs(
-        self, identifier: str, database: str, **filters: Any
+        self, identifier: DBeaverConnection, database: str, **filters: Any
     ) -> dict[str, Any]:
         from .postgres_logs import read_logs, validate_log_filters
 

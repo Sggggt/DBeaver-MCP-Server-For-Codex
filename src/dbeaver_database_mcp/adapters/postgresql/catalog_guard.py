@@ -9,7 +9,7 @@ from pglast import ast, parse_sql
 from pglast.visitors import Visitor
 from psycopg import sql
 
-from .errors import QueryRejected, error_stage
+from ...core.errors import QueryRejected, error_stage
 from .query import Table, relation_path, requested_relations
 
 SAFE_VOLATILE = {

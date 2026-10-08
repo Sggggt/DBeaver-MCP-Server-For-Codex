@@ -12,7 +12,7 @@ def obj(properties: dict, required=()) -> dict:
     }
 
 
-NAME = {"type": "string", "minLength": 1, "maxLength": 63}
+NAME = {"type": "string", "minLength": 1, "maxLength": 128}
 ALIAS = NAME
 VALUE = {"type": ["string", "number", "boolean", "null", "array", "object"]}
 TYPES = [

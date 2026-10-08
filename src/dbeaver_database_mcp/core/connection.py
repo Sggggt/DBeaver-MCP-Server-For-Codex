@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from .config import Settings
+from .errors import translate_error
 
 _DBEAVER_AES_KEY = bytes.fromhex("babb4a9f774ab853c96c2d653dfe544a")
 _DBEAVER_AES_IV = bytes(16)
@@ -29,6 +29,12 @@ class DBeaverConnection:
     password: str = field(repr=False)
     sslmode: str | None = field(default=None, repr=False)
 
+    options: dict[str, str] = field(default_factory=dict, repr=False)
+
+    @property
+    def database_type(self) -> str:
+        return self.provider
+
     def for_database(self, database: str) -> DBeaverConnection:
         target = database.strip()
         if not target:
@@ -47,6 +53,7 @@ class DBeaverConnection:
             "connection_name": self.name,
             "database": self.database,
             "schema": schema,
+            "database_type": self.database_type,
             "connection_source": "DBeaver workspace",
         }
 
@@ -54,35 +61,54 @@ class DBeaverConnection:
 class DBeaverConnectionStore:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.unavailable: list[dict[str, str]] = []
 
-    def connections(self) -> list[DBeaverConnection]:
+    def connections(self, database_type: str | None = None) -> list[DBeaverConnection]:
+        from .registry import PROVIDERS
+
         sources = self._read_data_sources()
         credentials = self._read_credentials()
         result: list[DBeaverConnection] = []
+        self.unavailable = []
         for connection_id, raw in sources.items():
-            if str(raw.get("provider") or "").lower() != "postgresql":
+            kind = PROVIDERS.get(str(raw.get("provider") or "").lower())
+            if not kind or (database_type and kind != database_type):
                 continue
-            result.append(self._build_connection(connection_id, raw, credentials))
+            try:
+                result.append(self._build_connection(connection_id, raw, credentials))
+            except (ValueError, TypeError) as exc:
+                self.unavailable.append(
+                    {
+                        "connection_id": connection_id,
+                        "connection_name": str(raw.get("name") or connection_id),
+                        "database_type": kind,
+                        "code": translate_error(exc).code,
+                    }
+                )
         return sorted(
             result, key=lambda item: (item.name.casefold(), item.connection_id)
         )
 
     def resolve(self, identifier: str) -> DBeaverConnection:
+        from .registry import PROVIDERS
+
         wanted = identifier.strip()
         if not wanted:
             raise ValueError("DBeaver connection name or id is required")
         matches = [
-            item
-            for item in self.connections()
-            if item.connection_id == wanted or item.name == wanted
+            (key, raw)
+            for key, raw in self._read_data_sources().items()
+            if str(raw.get("provider") or "").lower() in PROVIDERS
+            and (key == wanted or raw.get("name") == wanted)
         ]
         if not matches:
-            raise ValueError(f"DBeaver PostgreSQL connection not found: {wanted}")
+            raise ValueError(f"DBeaver connection not found: {wanted}")
         if len(matches) > 1:
             raise ValueError(
                 f"DBeaver connection name is ambiguous; use the connection id: {wanted}"
             )
-        return matches[0]
+        key, raw = matches[0]
+        return self._build_connection(key, raw, self._read_credentials())
 
     def _read_data_sources(self) -> dict[str, dict[str, Any]]:
         try:
@@ -152,53 +178,19 @@ class DBeaverConnectionStore:
                 f"DBeaver username is unavailable for connection: {connection_id}"
             )
 
-        url = str(configuration.get("url") or "")
-        parsed = None
-        if url:
-            if not url.startswith("jdbc:postgresql://"):
-                raise ValueError(
-                    f"DBeaver connection is not PostgreSQL: {connection_id}"
-                )
-            parsed = urlparse(url[5:])
-        host = str(
-            configuration.get("host") or (parsed.hostname if parsed else "") or ""
-        )
-        port_raw = (
-            configuration.get("port") or (parsed.port if parsed else None) or 5432
-        )
-        database = str(configuration.get("database") or "")
-        if not database and parsed:
-            database = unquote(parsed.path.lstrip("/"))
-        if not host or not database:
-            raise ValueError(
-                f"DBeaver connection is missing host or database: {connection_id}"
-            )
-        try:
-            port = int(port_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"DBeaver connection has an invalid port: {connection_id}"
-            ) from exc
+        from .registry import PROVIDERS, adapter_class
 
-        properties = configuration.get("properties")
-        properties = properties if isinstance(properties, dict) else {}
-        query = parse_qs(parsed.query) if parsed else {}
-        sslmode = str(
-            properties.get("sslmode") or (query.get("sslmode") or [""])[0] or ""
-        )
+        database_type = PROVIDERS[str(raw.get("provider") or "").lower()]
+        options = adapter_class(database_type).parse_configuration(configuration)
         return DBeaverConnection(
             connection_id=connection_id,
             name=str(raw.get("name") or connection_id),
-            provider="postgresql",
-            driver=str(raw.get("driver") or "postgres-jdbc"),
-            database=database,
-            default_schema=str(configuration.get("default-schema") or ""),
+            provider=database_type,
+            driver=str(raw.get("driver") or database_type),
             dbeaver_read_only=bool(raw.get("read-only", False)),
-            host=host,
-            port=port,
             username=username,
             password=password,
-            sslmode=sslmode or None,
+            **asdict(options),
         )
 
     @staticmethod
