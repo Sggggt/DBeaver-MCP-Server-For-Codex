@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dbeaver-database-mcp"
-version = "0.5.0"
-description = "Guarded read-only MCP backed exclusively by existing DBeaver PostgreSQL connections"
+version = "0.6.1"
+description = "Structured read-only MCP with database adapters for saved DBeaver connections"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-keywords = ["codex", "dbeaver", "mcp", "postgresql", "read-only"]
+keywords = ["dbeaver", "mcp", "postgresql", "oracle", "read-only"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "License :: OSI Approved :: Apache Software License",
@@ -26,10 +26,18 @@ dependencies = [
   "jsonschema>=4.23,<5",
   "tzdata>=2025.1",
   "pglast>=7,<8",
+  "oracledb>=3,<4",
+  "sqlglot>=28.10,<29",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "ruff>=0.16,<1"]
 
 [project.scripts]
 dbeaver-database-mcp = "dbeaver_database_mcp.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dbeaver_database_mcp"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

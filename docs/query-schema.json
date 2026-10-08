@@ -4,17 +4,17 @@
     "table": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 63
+      "maxLength": 128
     },
     "schema": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 63
+      "maxLength": 128
     },
     "alias": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 63
+      "maxLength": 128
     },
     "only": {
       "type": "boolean"
@@ -25,17 +25,17 @@
         "table": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 63
+          "maxLength": 128
         },
         "schema": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 63
+          "maxLength": 128
         },
         "alias": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 63
+          "maxLength": 128
         },
         "function": {
           "type": "object",
@@ -79,7 +79,7 @@
         "cte": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 63
+          "maxLength": 128
         },
         "values": {
           "type": "array",
@@ -99,7 +99,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "maxItems": 100,
           "minItems": 1
@@ -118,17 +118,17 @@
           "source": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "column": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "as": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           }
         },
         "required": [
@@ -151,7 +151,7 @@
           "as": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           }
         },
         "required": [
@@ -215,7 +215,7 @@
           "as": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "filter": {
             "$ref": "#/$defs/filter"
@@ -228,7 +228,7 @@
                 "field": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 63
+                  "maxLength": 128
                 },
                 "expr": {
                   "$ref": "#/$defs/expression"
@@ -272,17 +272,17 @@
           "table": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "schema": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "alias": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "function": {
             "type": "object",
@@ -326,7 +326,7 @@
           "cte": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "values": {
             "type": "array",
@@ -346,7 +346,7 @@
             "items": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             },
             "maxItems": 100,
             "minItems": 1
@@ -393,7 +393,7 @@
             "items": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             },
             "maxItems": 20,
             "minItems": 1
@@ -433,7 +433,7 @@
           "field": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "expr": {
             "$ref": "#/$defs/expression"
@@ -488,7 +488,7 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "query": {
             "$ref": "#/$defs/query"
@@ -498,7 +498,7 @@
             "items": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             },
             "maxItems": 100,
             "minItems": 1
@@ -565,7 +565,7 @@
       "items": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 63
+        "maxLength": 128
       },
       "maxItems": 100,
       "minItems": 1
@@ -582,12 +582,12 @@
             "source": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             },
             "column": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             }
           },
           "required": [
@@ -925,7 +925,7 @@
                   "field": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 63
+                    "maxLength": 128
                   },
                   "expr": {
                     "$ref": "#/$defs/expression"
@@ -959,7 +959,7 @@
                   "field": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 63
+                    "maxLength": 128
                   },
                   "expr": {
                     "$ref": "#/$defs/expression"
@@ -1042,7 +1042,7 @@
                   "field": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 63
+                    "maxLength": 128
                   },
                   "expr": {
                     "$ref": "#/$defs/expression"
@@ -1173,7 +1173,7 @@
             "output": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             }
           },
           "required": [
@@ -1310,17 +1310,17 @@
         "table": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 63
+          "maxLength": 128
         },
         "schema": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 63
+          "maxLength": 128
         },
         "alias": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 63
+          "maxLength": 128
         },
         "only": {
           "type": "boolean"
@@ -1331,17 +1331,17 @@
             "table": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             },
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             },
             "alias": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             },
             "function": {
               "type": "object",
@@ -1385,7 +1385,7 @@
             "cte": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 63
+              "maxLength": 128
             },
             "values": {
               "type": "array",
@@ -1405,7 +1405,7 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "maxItems": 100,
               "minItems": 1
@@ -1424,17 +1424,17 @@
               "source": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "column": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "as": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               }
             },
             "required": [
@@ -1457,7 +1457,7 @@
               "as": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               }
             },
             "required": [
@@ -1521,7 +1521,7 @@
               "as": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "filter": {
                 "$ref": "#/$defs/filter"
@@ -1534,7 +1534,7 @@
                     "field": {
                       "type": "string",
                       "minLength": 1,
-                      "maxLength": 63
+                      "maxLength": 128
                     },
                     "expr": {
                       "$ref": "#/$defs/expression"
@@ -1578,17 +1578,17 @@
               "table": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "schema": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "alias": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "function": {
                 "type": "object",
@@ -1632,7 +1632,7 @@
               "cte": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "values": {
                 "type": "array",
@@ -1652,7 +1652,7 @@
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 63
+                  "maxLength": 128
                 },
                 "maxItems": 100,
                 "minItems": 1
@@ -1699,7 +1699,7 @@
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 63
+                  "maxLength": 128
                 },
                 "maxItems": 20,
                 "minItems": 1
@@ -1739,7 +1739,7 @@
               "field": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "expr": {
                 "$ref": "#/$defs/expression"
@@ -1794,7 +1794,7 @@
               "name": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 63
+                "maxLength": 128
               },
               "query": {
                 "$ref": "#/$defs/query"
@@ -1804,7 +1804,7 @@
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 63
+                  "maxLength": 128
                 },
                 "maxItems": 100,
                 "minItems": 1
@@ -1871,7 +1871,7 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 63
+            "maxLength": 128
           },
           "maxItems": 100,
           "minItems": 1

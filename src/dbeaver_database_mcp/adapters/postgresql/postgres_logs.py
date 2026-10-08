@@ -16,36 +16,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import psycopg
 
-from .query import QueryRejected, obj, validate_schema
-
-LEVELS = [
-    "DEBUG5",
-    "DEBUG4",
-    "DEBUG3",
-    "DEBUG2",
-    "DEBUG1",
-    "INFO",
-    "NOTICE",
-    "WARNING",
-    "ERROR",
-    "LOG",
-    "FATAL",
-    "PANIC",
-]
-LOG_FILTER_SCHEMA = obj(
-    {
-        "levels": {
-            "type": "array",
-            "items": {"enum": LEVELS},
-            "minItems": 1,
-            "maxItems": len(LEVELS),
-            "uniqueItems": True,
-        },
-        "since": {"type": "string", "minLength": 20, "maxLength": 40},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
-        "max_bytes": {"type": "integer", "minimum": 1024, "maximum": 65536},
-    }
-)
+from ...core.tool_schema import LEVELS, LOG_FILTER_SCHEMA
+from .query import QueryRejected, validate_schema
 
 
 def parse_since(value: str | None) -> datetime | None:

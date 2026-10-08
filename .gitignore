@@ -20,6 +20,12 @@ build/
 dist/
 
 # Local data and logs
+.runtime/
+audit/
+verification/
+data-sources.json
+credentials-config.json
+Open-DBeaverConnection.ps1
 *.log
 *.csv
 *.tsv
