@@ -75,6 +75,7 @@ class DatabaseService:
                     }
                 )
         return {
+            **self.store.project_info.identity(),
             "connections": summaries,
             "returned": len(summaries),
             "unavailable": unavailable,

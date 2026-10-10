@@ -42,19 +42,31 @@ python -m venv .venv
 
 现有启动入口保持兼容。更新安装后重新启动 MCP 服务，使工具定义和已加载的模块生效。
 
-服务读取当前用户 DBeaver 工作区的 data-sources.json 与 credentials-config.json。默认位置：
+服务自动发现当前用户 DBeaver 工作区内的项目，读取项目 `.project` 中的名称（缺失或无效时使用目录名），并检查各项目 `.dbeaver` 内的连接配置文件。默认工作区：
 
 | 系统 | 位置 |
 | --- | --- |
-| Windows | %APPDATA%\DBeaverData\workspace6\General\.dbeaver |
-| macOS | ~/Library/DBeaverData/workspace6/General/.dbeaver |
-| Linux | ~/.local/share/DBeaverData/workspace6/General/.dbeaver |
+| Windows | %APPDATA%\DBeaverData\workspace6 |
+| macOS | ~/Library/DBeaverData/workspace6 |
+| Linux | ~/.local/share/DBeaverData/workspace6 |
+
+不依赖 `General` 项目，也不通过 MCP 参数接受任意文件路径。项目 ID 是工作区内的项目目录名；显示名称可以与 ID 不同。项目发现只返回名称、ID 和 `data-sources.json` / `credentials-config.json` 是否存在，不读取连接正文、解密凭据或连接数据库。空项目和配置缺失项目仍可被发现，`missing_files` 指明缺失项。
 
 凭据只在本地服务进程中用于建立连接。不要将工作区文件、个人连接、运行日志或数据集加入仓库。
 
 ## 调用方式
 
-先 list_dbeaver_connections，再 list_databases、list_schemas、search_catalog 和 get_table_context，使用返回的精确标识。
+首次调用 `list_dbeaver_projects`，使用返回的精确 `project_id` 调用 `select_dbeaver_project`。例如：
+
+```json
+{"project": "已发现的项目 ID"}
+```
+
+选定项目在当前 MCP 进程会话内保持。后续直接调用 `list_dbeaver_connections`、`list_databases`、`list_schemas`、`search_catalog` 和 `get_table_context`，无需重复发现项目或传递项目参数。连接列表及连接上下文携带 `project_id` / `project_name`，同名连接和相同连接 ID 只在当前项目中解析。
+
+只有用户明确要求切换项目时才再次调用 `select_dbeaver_project`。项目列表不会改变选择；连接失败、配置缺失或连接未找到也不会自动改用其他项目。失败的项目选择保留原选择。MCP 重启后需重新选择；若首次调用连接工具且只有一个项目有 `data-sources.json`，服务会自动选定它，否则返回 `PROJECT_REQUIRED`。
+
+项目会话保持选择，不缓存底层数据库连接或事务；每次数据库调用仍独立建立只读事务并清理连接。Python 调用者仍可通过 `Settings.from_dbeaver(config_dir)` 使用明确的本地项目配置目录。
 
 所有工具接受可选的 database_type 枚举。新调用建议显式传 postgresql 或 oracle；旧调用省略时从所选连接识别。get_query_capabilities 不连接数据库，省略类型时返回 PostgreSQL 能力以兼容旧客户端。
 
@@ -85,6 +97,7 @@ src/dbeaver_database_mcp/
     adapter.py          # 公共适配接口与连接参数模型
     registry.py         # 数据库类型、DBeaver provider 与适配器注册
     connection.py       # DBeaver 配置与凭据读取
+    projects.py         # 项目元数据发现与进程会话选择
     service.py          # 类型核对与公共调度
     mcp_server.py       # MCP 协议、工具定义与请求/响应限制
     validation.py       # 结构和复杂度校验

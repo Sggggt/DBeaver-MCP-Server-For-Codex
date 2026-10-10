@@ -41,10 +41,17 @@ class Settings:
     default_max_rows: int = 50
     max_cell_chars: int = 4_000
     max_result_bytes: int = 524_288
+    dbeaver_workspace_dir: Path | None = None
 
     @classmethod
     def from_dbeaver(cls, config_dir: Path | None = None) -> Settings:
-        resolved = (config_dir or _default_dbeaver_config_dir()).expanduser().resolve()
+        if config_dir is None:
+            default_dir = _default_dbeaver_config_dir().expanduser()
+            return cls(
+                dbeaver_config_dir=default_dir.resolve(),
+                dbeaver_workspace_dir=default_dir.parent.parent.resolve(),
+            )
+        resolved = config_dir.expanduser().resolve()
         settings = cls(dbeaver_config_dir=resolved)
         missing = [
             path.name
