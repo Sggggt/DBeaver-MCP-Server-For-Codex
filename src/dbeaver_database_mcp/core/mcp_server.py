@@ -6,8 +6,8 @@ from typing import Any
 from uuid import uuid4
 
 from .. import __version__
-from .config import Settings
 from .errors import emit_diagnostic, error_payload, error_stage
+from .projects import ProjectSession
 from .query_schema import FILTER_DEFS, QUERY_SCHEMA
 from .registry import ADAPTERS, adapter_class
 from .service import DatabaseService
@@ -22,7 +22,9 @@ SERVER_NAME = "dbeaver-database"
 SERVER_VERSION = __version__
 INSTRUCTIONS = (
     "DBeaver 多数据库结构化只读查询工具。LLM只能提交表、列、连接、聚合、排序和条件的JSON参数；"
-    "不接受SQL或表达式文本、自定义函数调用或文件路径。先list_dbeaver_connections，再list_databases、"
+    "不接受SQL或表达式文本、自定义函数调用或文件路径。首次使用list_dbeaver_projects和select_dbeaver_project选择项目；"
+    "项目选择在当前MCP进程会话内保持，后续不重复发现、不跨项目回退，仅在用户要求时切换项目。"
+    "数据库仍逐次建立只读事务。先list_dbeaver_connections，再list_databases、"
     "search_catalog、get_table_context。使用analyze_query、explain_query、execute_query；database_type须与保存连接一致，未实现能力明确拒绝。"
     "所有访问必须明确connection/database，数据查询还须明确schema。条件只使用固定运算符，"
     "值绑定为参数；数据库强制只读事务、原生类型、对象依赖安全检查和数据库账号原生读权限、超时、行数和响应上限。"
@@ -99,8 +101,26 @@ OBJECT_TYPES = [
 
 TOOLS = [
     _tool(
+        "list_dbeaver_projects",
+        "发现DBeaver工作区项目，返回项目名称、ID、配置文件存在状态和当前会话项目；不读取连接正文或凭据，不连接数据库，不改变当前项目。",
+        {},
+    ),
+    _tool(
+        "select_dbeaver_project",
+        "首次选择或按用户要求切换当前MCP会话的DBeaver项目。后续所有连接及查询只使用此项目，直到显式切换或MCP重启；不连接数据库。",
+        {
+            "project": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "description": "list_dbeaver_projects返回的精确project_id；不接受文件路径。",
+            }
+        },
+        ["project"],
+    ),
+    _tool(
         "list_dbeaver_connections",
-        "列出DBeaver中已有且可用的数据库连接，并返回每个连接可进入的数据库摘要；不返回地址或账密。",
+        "列出当前会话项目中已有且可用的数据库连接，返回项目名称、连接ID和可进入的数据库摘要；首次未选择且仅一个项目有连接配置时自动选定该项目，不返回地址或账密。",
         {},
     ),
     _tool(
@@ -229,11 +249,19 @@ TOOLS.append(
     )
 )
 TOOLS_BY_NAME = {tool["name"]: tool for tool in TOOLS}
+PROJECT_SESSION = ProjectSession()
 
 
 def _service(database_type: str | None = None) -> DatabaseService:
     with error_stage("configuration"):
-        return DatabaseService(Settings.from_dbeaver(), database_type=database_type)
+        from .connection import DBeaverConnectionStore
+
+        settings, project = PROJECT_SESSION.require_project()
+        return DatabaseService(
+            settings,
+            store=DBeaverConnectionStore(settings, project),
+            database_type=database_type,
+        )
 
 
 def _handle_tool(name: str, arguments: dict[str, Any]) -> Any:
@@ -247,6 +275,10 @@ def _handle_tool(name: str, arguments: dict[str, Any]) -> Any:
         )
     with error_stage("validate"):
         validate_schema(arguments, tool["inputSchema"])
+    if name == "list_dbeaver_projects":
+        return PROJECT_SESSION.list_projects()
+    if name == "select_dbeaver_project":
+        return PROJECT_SESSION.select(arguments["project"])
     if name == "get_query_capabilities":
         kind = arguments.get("database_type", "postgresql")
         return {

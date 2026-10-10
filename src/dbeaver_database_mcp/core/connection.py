@@ -8,7 +8,14 @@ from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from .config import Settings
-from .errors import translate_error
+from .errors import ToolError, translate_error
+from .projects import (
+    DBeaverProject,
+    discover_projects,
+    initial_project,
+    project_from_config,
+    project_settings,
+)
 
 _DBEAVER_AES_KEY = bytes.fromhex("babb4a9f774ab853c96c2d653dfe544a")
 _DBEAVER_AES_IV = bytes(16)
@@ -30,6 +37,8 @@ class DBeaverConnection:
     sslmode: str | None = field(default=None, repr=False)
 
     options: dict[str, str] = field(default_factory=dict, repr=False)
+    project_id: str = ""
+    project_name: str = ""
 
     @property
     def database_type(self) -> str:
@@ -51,6 +60,8 @@ class DBeaverConnection:
         return {
             "connection_id": self.connection_id,
             "connection_name": self.name,
+            "project_id": self.project_id,
+            "project_name": self.project_name,
             "database": self.database,
             "schema": schema,
             "database_type": self.database_type,
@@ -59,8 +70,12 @@ class DBeaverConnection:
 
 
 class DBeaverConnectionStore:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, project_info: DBeaverProject | None = None):
+        if settings.dbeaver_workspace_dir is not None:
+            project_info = initial_project(discover_projects(settings))
+            settings = project_settings(settings, project_info)
         self.settings = settings
+        self.project_info = project_info or project_from_config(settings.dbeaver_config_dir)
         self.unavailable: list[dict[str, str]] = []
 
     def connections(self, database_type: str | None = None) -> list[DBeaverConnection]:
@@ -81,6 +96,7 @@ class DBeaverConnectionStore:
                     {
                         "connection_id": connection_id,
                         "connection_name": str(raw.get("name") or connection_id),
+                        **self.project_info.identity(),
                         "database_type": kind,
                         "code": translate_error(exc).code,
                     }
@@ -104,20 +120,25 @@ class DBeaverConnectionStore:
         if not matches:
             raise ValueError(f"DBeaver connection not found: {wanted}")
         if len(matches) > 1:
-            raise ValueError(
-                f"DBeaver connection name is ambiguous; use the connection id: {wanted}"
+            raise ToolError(
+                "所选项目中的连接名称不唯一。",
+                code="CONNECTION_AMBIGUOUS",
+                stage="resolve_connection",
+                path="connection",
+                hint="使用 list_dbeaver_connections 返回的精确连接 ID。",
             )
         key, raw = matches[0]
         return self._build_connection(key, raw, self._read_credentials())
 
     def _read_data_sources(self) -> dict[str, dict[str, Any]]:
+        self._require_storage_file("data-sources.json")
         try:
             document = json.loads(
                 self.settings.data_sources_file.read_text(encoding="utf-8-sig")
             )
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ValueError("DBeaver data-sources.json could not be read") from exc
-        connections = document.get("connections")
+        connections = document.get("connections") if isinstance(document, dict) else None
         if not isinstance(connections, dict):
             raise TypeError("DBeaver data-sources.json has no connections object")
         return {
@@ -127,6 +148,7 @@ class DBeaverConnectionStore:
         }
 
     def _read_credentials(self) -> dict[str, dict[str, Any]]:
+        self._require_storage_file("credentials-config.json")
         try:
             encrypted = self.settings.credentials_file.read_bytes()
             decryptor = Cipher(
@@ -154,6 +176,16 @@ class DBeaverConnectionStore:
             for key, value in document.items()
             if isinstance(value, dict)
         }
+
+    def _require_storage_file(self, filename: str) -> None:
+        if not (self.settings.dbeaver_config_dir / filename).is_file():
+            raise ToolError(
+                "所选 DBeaver 项目的连接存储不完整。",
+                code="CONNECTION_STORAGE_ERROR",
+                stage="configuration",
+                hint="在所选项目中保存连接和凭据；仅在用户要求切换项目时调用 select_dbeaver_project。",
+                details=self.project_info.summary(),
+            )
 
     def _build_connection(
         self,
@@ -190,6 +222,7 @@ class DBeaverConnectionStore:
             dbeaver_read_only=bool(raw.get("read-only", False)),
             username=username,
             password=password,
+            **self.project_info.identity(),
             **asdict(options),
         )
 
