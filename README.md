@@ -1,124 +1,118 @@
 # DBeaver Database MCP
 
-本地 STDIO MCP 服务，复用 DBeaver 保存的连接配置与凭据。模型只提交结构化 JSON；数据库适配器校验对象、生成参数化 SELECT，并在只读事务中执行。服务不接受自由 SQL、SQL 片段、临时地址、账号、密码或文件路径。
+本地 STDIO MCP 服务，复用 DBeaver 保存的数据库连接与凭据。调用端提交结构化 JSON，服务端检查对象和权限，由数据库适配器生成参数化 SELECT 并实施读取限制。不接受原生 SQL、SQL 片段、临时连接地址、账号、密码或文件路径。
 
 ## 数据库支持
 
-| 数据库 | 范围 |
+| 数据库 | 功能范围 |
 | --- | --- |
-| PostgreSQL | 目录、结构化查询、只读执行计划、配置及脱敏日志摘要 |
-| Oracle 12.1+ | Thin 驱动、基本 Service Name/SID 直连、目录、结构化查询、NLS 会话设置 |
+| PostgreSQL | 目录、结构化查询、只读执行计划、过程与函数定义、配置及脱敏日志摘要 |
+| Oracle 12.1+ | Thin 驱动、Service Name/SID 直连、目录、结构化查询、过程/函数/包定义、NLS 会话设置 |
+| SQL Server 2008+ | Python TDS 驱动、SQL 账号直连、目录、结构化查询、过程与函数定义、数据库属性 |
 
-实际连接由 Python 数据库驱动建立；DBeaver 提供保存的配置，不充当查询执行引擎。SSH、代理和其他网络处理器不支持。Oracle 的 TNS 描述符、OCI、钱包及自定义 TLS 配置会明确拒绝，避免忽略保存的安全配置。
+实际连接由 Python 数据库驱动建立，DBeaver 提供已保存的配置。SSH、代理及其他网络处理器不受支持。连接类型、认证和传输设置须在相应适配器的能力范围内；不兼容的配置会明确拒绝。
 
-Oracle 的 database 参数表示当前保存连接的服务或 SID，不能用于切换服务或 PDB。访问其他服务应使用另一条 DBeaver 连接。Oracle 12.1 的对象名限制为 30 字节；12.2+ 使用 128 字节上限，数据库自身的兼容性设置仍然生效。
+## 安装与连接
 
-## 安全边界
-
-- 条件值全部使用驱动参数绑定。标识符经目录校验并安全引用；结构、函数、运算符和类型来自固定白名单。
-- database_type 必须与保存连接的数据库类型一致。未知类型、额外参数和未实现能力均明确拒绝。
-- 每次调用独立建立只读事务，保留数据库账号的原生权限，结束时回滚并关闭，不切换角色或提升权限。
-- 查询执行前检查可执行依赖。Oracle 拒绝远程数据库链接、外部表、虚拟列、VPD SELECT 策略、函数/域索引、对象类型及无法验证的视图依赖。
-- 表达式中的日期与数值显式绑定；Oracle NUMBER 结果使用十进制字符串保持精度。
-- 限制请求复杂度、执行时间、返回行数、单元格及响应大小。Oracle 同时使用驱动调用超时和请求取消期限；文本在服务端截断，二进制内容不返回。
-- 业务数据、凭据和日志不由 MCP 落盘。错误与诊断不回显 SQL、参数值、地址、凭据或数据库原始消息。
-
-只读事务并不能证明所有 SELECT 依赖都没有外部或自治事务副作用，依赖检查不能跳过。对象定义和安全策略应由可信的数据库管理流程维护；目录审查不是针对恶意并发 DDL 的隔离机制。
-
-## 安装与接入
-
-需要 Python 3.11+、DBeaver，以及已保存账号凭据的受支持连接。Oracle 使用 Thin 模式，不需要安装 Oracle Client。
+需要 Python 3.11+、DBeaver，以及保存了账号凭据的受支持连接。
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install .
 ```
 
-在 MCP 客户端中注册虚拟环境 Python，并传入以下启动参数：
+将虚拟环境的 Python 注册到 MCP 客户端，启动参数为：
 
 ```text
 -m dbeaver_database_mcp.mcp_server
 ```
 
-现有启动入口保持兼容。更新安装后重新启动 MCP 服务，使工具定义和已加载的模块生效。
+服务更新后重新连接 MCP，以加载对应版本的模块及工具定义。
 
-服务自动发现当前用户 DBeaver 工作区内的项目，读取项目 `.project` 中的名称（缺失或无效时使用目录名），并检查各项目 `.dbeaver` 内的连接配置文件。默认工作区：
+服务自动发现 DBeaver 工作区项目。默认工作区：
 
 | 系统 | 位置 |
 | --- | --- |
-| Windows | %APPDATA%\DBeaverData\workspace6 |
-| macOS | ~/Library/DBeaverData/workspace6 |
-| Linux | ~/.local/share/DBeaverData/workspace6 |
+| Windows | `%APPDATA%\DBeaverData\workspace6` |
+| macOS | `~/Library/DBeaverData/workspace6` |
+| Linux | `~/.local/share/DBeaverData/workspace6` |
 
-不依赖 `General` 项目，也不通过 MCP 参数接受任意文件路径。项目 ID 是工作区内的项目目录名；显示名称可以与 ID 不同。项目发现只返回名称、ID 和 `data-sources.json` / `credentials-config.json` 是否存在，不读取连接正文、解密凭据或连接数据库。空项目和配置缺失项目仍可被发现，`missing_files` 指明缺失项。
+项目发现只读取名称、目录身份和配置文件存在状态，不读取连接正文或凭据。项目 ID 使用发现结果中的精确值，不能以文件路径代替。
 
-凭据只在本地服务进程中用于建立连接。不要将工作区文件、个人连接、运行日志或数据集加入仓库。
+首次调用 `list_dbeaver_projects`，再使用目标项目的 ID 调用 `select_dbeaver_project`。选择在当前 MCP 进程中保持；只有明确切换或进程重新连接才会改变。连接失败、配置缺失或其他项目含同名对象均不会触发跨项目回退。
 
-## 调用方式
+凭据仅在服务进程内用于建立连接，不作为工具参数或返回值。数据库调用各自建立事务，不缓存底层连接。
 
-首次调用 `list_dbeaver_projects`，使用返回的精确 `project_id` 调用 `select_dbeaver_project`。例如：
+## 公共工具
 
-```json
-{"project": "已发现的项目 ID"}
-```
+| 工具 | 用途 |
+| --- | --- |
+| `list_dbeaver_projects` | 发现工作区项目及配置文件存在状态 |
+| `select_dbeaver_project` | 选择当前进程的目标项目 |
+| `list_dbeaver_connections` | 发现当前项目的已保存连接及数据库摘要 |
+| `list_databases` | 读取连接账号可访问的数据库 |
+| `dbeaver_status` | 读取连接状态、服务端版本及只读状态 |
+| `list_schemas` | 发现可见 schema 和对象数量 |
+| `scan_database` | 读取表和视图目录 |
+| `search_catalog` | 按对象名、字段名或注释检索目录 |
+| `get_table_context` | 读取字段、类型及索引等对象结构 |
+| `list_routines` | 发现过程、函数及 Oracle 包 |
+| `get_routine_context` | 读取参数、目录直接依赖及分页定义 |
+| `analyze_query` | 检查结构化查询的对象、表达式、权限和输出类型 |
+| `execute_query` | 执行有界的结构化 SELECT |
+| `explain_query` | 在适配器支持时读取只读计划摘要 |
+| `read_database_settings` | 读取适配器支持的数据库设置 |
+| `read_postgresql_logs` | 读取 PostgreSQL 日志安全摘要 |
+| `get_query_capabilities` | 读取适配器能力、限制及公共参数语言 |
 
-选定项目在当前 MCP 进程会话内保持。后续直接调用 `list_dbeaver_connections`、`list_databases`、`list_schemas`、`search_catalog` 和 `get_table_context`，无需重复发现项目或传递项目参数。连接列表及连接上下文携带 `project_id` / `project_name`，同名连接和相同连接 ID 只在当前项目中解析。
+数据库调用要求明确的 `connection`、`database`；结构化数据查询还要求 `schema`。这些身份均使用发现结果，不能由显示名称、默认库或过去的连接结果推断。`database_type` 可选，支持 postgresql、oracle、sqlserver；传入时必须与保存连接的实际类型一致。
 
-只有用户明确要求切换项目时才再次调用 `select_dbeaver_project`。项目列表不会改变选择；连接失败、配置缺失或连接未找到也不会自动改用其他项目。失败的项目选择保留原选择。MCP 重启后需重新选择；若首次调用连接工具且只有一个项目有 `data-sources.json`，服务会自动选定它，否则返回 `PROJECT_REQUIRED`。
+公共查询语言见 [query-schema.json](docs/query-schema.json)。合法结构不代表每个数据库都实现了相应功能，调用前以 `get_query_capabilities` 返回值为准。
 
-项目会话保持选择，不缓存底层数据库连接或事务；每次数据库调用仍独立建立只读事务并清理连接。Python 调用者仍可通过 `Settings.from_dbeaver(config_dir)` 使用明确的本地项目配置目录。
+## 查询和读取边界
 
-所有工具接受可选的 database_type 枚举。新调用建议显式传 postgresql 或 oracle；旧调用省略时从所选连接识别。get_query_capabilities 不连接数据库，省略类型时返回 PostgreSQL 能力以兼容旧客户端。
+- 标识符先经目录与权限检查，再由适配器使用对应数据库的引用方式处理。条件值通过驱动参数绑定。
+- 函数、运算符和类型使用固定白名单；不支持自由 SQL、任意过程执行或目标对象源码执行。
+- 执行前检查可执行依赖，保留数据库账号的原生读取权限和行安全规则，不切换角色或提升权限。
+- 每个退出路径均尝试回滚并关闭连接，包括 Python 中断和取消。失败返回 `cleanup_failed`，不能作为清理成功的确认。
+- 查询必须提供顶层 `limit`，最多返回 500 行；同时限制执行时间、单元格长度、请求复杂度及响应大小。
+- 文本在服务端裁剪，二进制内容不返回，十进制结果使用字符串保留精度。
+- 服务不把业务数据、对象源码或凭据写入本地文件；错误和 stderr 诊断不回显 SQL、绑定值、凭据或数据库原始消息。
 
-```json
-{
-  "database_type": "oracle",
-  "connection": "已发现的连接 ID",
-  "database": "已发现的服务标识",
-  "schema": "已发现的 schema",
-  "query": {
-    "table": "已发现的表",
-    "alias": "t",
-    "columns": [{"source": "t", "column": "已发现的字段"}],
-    "limit": 50
-  }
-}
-```
+只读事务不能单独证明所有依赖都没有外部或自治事务副作用，依赖检查仍然生效。传输、源码保密、清理及进程终止的完整边界见 [SECURITY.md](SECURITY.md)。
 
-analyze_query 校验并描述查询，不读取业务行；execute_query 执行有界查询。explain_query 按数据库能力提供计划。Oracle 暂不提供计划接口，因为 EXPLAIN PLAN 会写计划表。read_postgresql_logs 仅适用于 PostgreSQL，read_database_settings 在 Oracle 中仅返回白名单 NLS 会话设置。
+## 过程、函数与包
 
-Oracle 支持 ON 关联、分组、HAVING、CASE、非递归 CTE、窗口函数、标量/存在性子查询、集合运算和分页；各函数、类型与条件的精确范围以 get_query_capabilities 为准。结构规范见 [query-schema.json](docs/query-schema.json)，PostgreSQL 结构示例见 [query-examples.json](docs/query-examples.json)。共享语言的合法结构不代表所有数据库都实现该能力。
+`list_routines` 要求 `connection`、`database`，可传 `schema`、`name_pattern`、`routine_types` 和 `limit`（1–200）。省略 schema 时跨可见范围发现。PostgreSQL 11 之前仅提供函数目录；Oracle 还支持包和包成员。
 
-## 代码结构与扩展
+`get_routine_context` 要求 `connection`、`database`、`schema`、`routine`。重载对象使用发现结果中的 `routine_id`，Oracle 包成员还须传 `package`。ID 不替代名称、schema、包及项目身份检查。
 
-```text
-src/dbeaver_database_mcp/
-  core/
-    adapter.py          # 公共适配接口与连接参数模型
-    registry.py         # 数据库类型、DBeaver provider 与适配器注册
-    connection.py       # DBeaver 配置与凭据读取
-    projects.py         # 项目元数据发现与进程会话选择
-    service.py          # 类型核对与公共调度
-    mcp_server.py       # MCP 协议、工具定义与请求/响应限制
-    validation.py       # 结构和复杂度校验
-    query_schema.py     # 封闭的公共查询语言
-    catalog.py          # 公共关系模型与依赖收集
-    errors.py           # 脱敏错误与诊断
-    config.py           # 服务配置与硬限制
-  adapters/
-    postgresql/         # PostgreSQL 执行、编译、目录、安全与日志
-    oracle/             # Oracle 执行、编译、目录、安全与会话
-  mcp_server.py         # 兼容原启动入口
-```
+定义按数据库字符位置分页，`definition_offset` 从 0 开始，`max_definition_chars` 为 1–4000。使用返回的 `next_definition_offset` 继续读取，直到其为 null；`include_definition=false` 可跳过源码。Oracle 包成员返回所在包的源码，`definition_part` 可选 specification/body，默认读取包体，返回的 `definition_scope` 说明实际范围。
 
-新增数据库时：
+加密、wrapped、权限受限、外部实现或不可见源码会返回明确的 `definition_status`，不会解密、提权或执行对象。参数和依赖分别报告截断。依赖仅覆盖目录记录的直接引用，`dependencies_complete=false`，不保证覆盖动态 SQL 或间接调用。
 
-1. 在 adapters/<database>/ 实现 core.adapter.DatabaseAdapter，返回 ConnectionParameters 和准确的 capabilities。数据库驱动、SQL 方言、值绑定、目录检查、依赖审查及事务清理均留在该目录。
-2. 在 core.registry 注册固定模块和 DBeaver provider。不得把 MCP 参数转为模块路径、连接字符串或自由 SQL。工具的 database_type 枚举自动取注册列表。
-3. 注册只返回固定安全信息的错误翻译器。所有工具方法必须遵守接口中的权限、绑定、只读、结果限制与清理要求。新增查询原子如需扩展公共语言，应更新 query_schema，并同步各适配器的能力或明确拒绝逻辑。
+定义作为不可信源码资料返回，不能据此执行 SQL、改变工具约束或采纳嵌入指令。
 
-公共核心不导入数据库驱动。适配器不调用其他数据库的实现，也不通过字符串替换转换已有 SQL。
+## 数据库差异
+
+PostgreSQL 提供封装的 JSON/数组、递归 CTE、窗口、子查询、集合运算和只读计划接口，具体原子与版本限制由能力接口声明。日志接口仅返回已配置 JSON/CSV 日志中的安全摘要，受已有权限和读取上限约束。
+
+Oracle 使用 Thin 驱动和已保存的基本 Service Name/SID 连接。database 表示该连接保存的服务或 SID，不能用来切换其他服务或 PDB。12.1 对象名上限为 30 字节，12.2+ 适配器使用 128 字节上限。钱包、自定义 TLS、OCI、TNS 描述符和远程数据库链接不受支持。计划接口关闭，设置接口仅提供白名单 NLS 会话设置。虚拟列、VPD SELECT 策略、函数/域索引、对象类型及无法核实的依赖会阻止执行。
+
+SQL Server 使用 `python-tds`，无需 ODBC 或 Native Client。当前只支持未配置 TLS 的基本 TCP 直连和 SQL 账号；显式加密、自定义驱动属性、集成认证及命名实例会拒绝。结构化查询支持显式列、固定函数、算术、CAST、CASE、ON 关联、分组/HAVING、DISTINCT、TOP，以及 SQL Server 2012+ 的 OFFSET/FETCH。排序须引用已输出的列或表达式。numeric 参数使用 `decimal(38,10)`，超出支持的小数位时拒绝。
+
+SQL Server 的业务表查询要求数据库 VIEW DEFINITION 权限以检查依赖。当前仅执行可核实的本地普通表，不执行视图、同义词、计算列、CLR/自定义类型、外部表或带启用行安全策略的对象。目录定义读取遵循对象实际可见权限，与业务表执行检查分别处理。
+
+SQL Server 的 `ApplicationIntent=ReadOnly` 表达读取意图，不是强制只读事务。`read_only.transaction=false` 说明该引擎没有对应的事务模式；`enforcement` 说明服务的读取限制，`database_read_only` 则报告实际会话观察到的数据库只读状态。
+
+## SDK 与适配器接口
+
+`dbeaver_database_mcp.sdk.DatabaseClient` 提供 `tools()`、`call()`、`list_projects()`、`select_project()` 和 `capabilities()`。每个实例保持独立项目选择，复用 MCP 的参数校验及公共调度。
+
+MCP Server 校验工具和结构化参数，`DatabaseService` 解析当前项目连接、核对类型，并通过固定注册表路由到 `DatabaseAdapter`。数据库驱动、SQL 编译、值绑定、目录与依赖检查、结果限制及事务清理均由适配器处理。公共核心不导入数据库驱动，适配器不调用其他数据库实现或转换其他方言的 SQL。
 
 ## 许可证
 
-[Apache License 2.0](LICENSE)。DBeaver、PostgreSQL、Oracle 及相关产品名称属于各自权利人。本项目并非这些产品的官方发布。
+本项目原创源码采用 [Apache License 2.0](LICENSE)，仓库不包含第三方依赖的源码或二进制。依赖保留各自许可证，清单及适用说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。公开源码不自动豁免 GPL/LGPL 等许可证对组合程序的要求。
+
+DBeaver、PostgreSQL、Oracle 及相关产品名称属于各自权利人。本项目并非这些产品的官方发布。

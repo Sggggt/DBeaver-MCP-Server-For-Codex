@@ -108,6 +108,7 @@ def open_session(source, settings, database, timeout_ms=None):
             **source.options,
         )
     session = None
+    error = None
     try:
         connection.autocommit = False
         connection.outputtypehandler = number_handler
@@ -124,29 +125,29 @@ def open_session(source, settings, database, timeout_ms=None):
             connection.rollback()
             session.execute(cursor, "SET TRANSACTION READ ONLY")
         yield session
-    except Exception as exc:
-        error = translate_error(exc)
-        if session:
-            session.stop()
-        try:
-            connection.rollback()
-        except Exception:
-            error.cleanup_failed = True
-        try:
-            connection.close()
-        except Exception:
-            error.cleanup_failed = True
+    except BaseException as exc:
+        error = translate_error(exc) if isinstance(exc, Exception) else exc
         if error is exc:
             raise
         raise error from exc
-    else:
-        session.stop()
+    finally:
         cleanup_error = None
-        for operation in (connection.rollback, connection.close):
+        operations = ([session.stop] if session is not None else []) + [
+            connection.rollback,
+            connection.close,
+        ]
+        for operation in operations:
             try:
                 operation()
-            except Exception as exc:
-                cleanup_error = cleanup_error or translate_error(exc, "cleanup")
-                cleanup_error.cleanup_failed = True
+            except BaseException as exc:
+                cleanup_error = cleanup_error or (
+                    translate_error(exc, "cleanup")
+                    if isinstance(exc, Exception)
+                    else exc
+                )
         if cleanup_error:
-            raise cleanup_error
+            if error is not None:
+                error.cleanup_failed = True
+            else:
+                cleanup_error.cleanup_failed = True
+                raise cleanup_error

@@ -25,6 +25,43 @@ def unsupported(feature: str) -> NoReturn:
     )
 
 
+def resolve_routine(rows: list[Result]) -> Result:
+    """Resolve only candidates already matched by saved connection/schema/name."""
+    if not rows:
+        raise QueryRejected(
+            "过程或函数不存在或当前账号不可见。",
+            code="ROUTINE_NOT_FOUND",
+            path="routine",
+            stage="catalog",
+        )
+    if len(rows) != 1:
+        raise QueryRejected(
+            "过程或函数名称对应多个重载。",
+            code="ROUTINE_AMBIGUOUS",
+            path="routine_id",
+            stage="catalog",
+            hint="使用 list_routines 返回的精确 routine_id，并保持原 connection/database/schema/routine/package。",
+        )
+    return rows[0]
+
+
+def routine_definition(text, total_chars, offset, status, returned_chars=None):
+    """Normalize bounded source fragments; the returned SQL is data, never input."""
+    available = status == "available"
+    text = (text or "") if available else None
+    end = offset + (len(text or "") if returned_chars is None else returned_chars)
+    more = available and total_chars is not None and end < total_chars
+    return {
+        "definition": text,
+        "definition_status": status,
+        "definition_offset": offset,
+        "definition_total_chars": total_chars if available else None,
+        "definition_truncated": bool(more),
+        "next_definition_offset": end if more else None,
+        "definition_offset_units": "database_characters",
+    }
+
+
 @dataclass(frozen=True)
 class ConnectionParameters:
     """Transport settings obtained only from the saved DBeaver configuration."""
@@ -38,11 +75,14 @@ class ConnectionParameters:
 
 
 class DatabaseAdapter(ABC):
-    """Implementations own SQL, binding, catalog validation and read-only sessions.
+    """Implementations own SQL, binding, catalog validation and read restrictions.
 
     Inputs are validated JSON and saved DBeaver connections. Implementations must
     enforce native privileges, verify executable dependencies before planning,
     bind every data value, bound transfers, and always roll back and close.
+    Prefer server-enforced read-only transactions where available. Adapters for
+    engines without that mode must disclose it and enforce a closed SELECT
+    language plus executable dependency checks; routing intent is not proof.
     Never accept SQL, transport overrides or credentials from tool arguments.
     """
 
@@ -121,6 +161,34 @@ class DatabaseAdapter(ABC):
         names: list[str] | None = None,
     ) -> Result:
         unsupported("database_settings")
+
+    def list_routines(
+        self,
+        source: DBeaverConnection,
+        database: str,
+        *,
+        schema: str = "",
+        name_pattern: str = "",
+        routine_types: list[str] | None = None,
+        limit: int = 50,
+    ) -> Result:
+        unsupported("routine_catalog")
+
+    def routine_context(
+        self,
+        source: DBeaverConnection,
+        database: str,
+        schema: str,
+        routine: str,
+        *,
+        routine_id: str = "",
+        package: str = "",
+        include_definition: bool = True,
+        definition_part: str = "definition",
+        definition_offset: int = 0,
+        max_definition_chars: int = 4000,
+    ) -> Result:
+        unsupported("routine_catalog")
 
     def read_postgresql_logs(
         self,

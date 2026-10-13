@@ -63,6 +63,12 @@ class DatabaseService:
                         "driver": source.driver,
                         "dbeaver_read_only_flag": source.dbeaver_read_only,
                         "mcp_enforced_read_only": True,
+                        "read_only": result.get(
+                            "read_only",
+                            adapter.capabilities().get(
+                                "read_only", {"transaction": True}
+                            ),
+                        ),
                     }
                 )
             except Exception as exc:
@@ -104,6 +110,16 @@ class DatabaseService:
     def table_context(self, identifier: str, database: str, schema: str, table: str):
         adapter, source = self._route(identifier)
         return adapter.table_context(source, database, schema, table)
+
+    def list_routines(self, identifier: str, database: str, **options):
+        adapter, source = self._route(identifier)
+        return adapter.list_routines(source, database, **options)
+
+    def routine_context(
+        self, identifier: str, database: str, schema: str, routine: str, **options
+    ):
+        adapter, source = self._route(identifier)
+        return adapter.routine_context(source, database, schema, routine, **options)
 
     def structured_query(
         self,

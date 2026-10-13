@@ -14,7 +14,12 @@ from psycopg import sql
 from psycopg.rows import dict_row, tuple_row
 from psycopg.types.json import set_json_loads
 
-from ...core.adapter import DatabaseAdapter
+from ...core.adapter import (
+    DatabaseAdapter,
+    resolve_routine,
+    routine_definition,
+    unsupported,
+)
 from ...core.connection import DBeaverConnection
 from ...core.errors import (
     error_stage,
@@ -56,6 +61,16 @@ class PostgreSQLAdapter(DatabaseAdapter):
             "explain": True,
             "database_settings": True,
             "postgresql_logs": True,
+            "routine_catalog": {
+                "list": True,
+                "parameters": True,
+                "definition": True,
+                "types": ["procedure", "function"],
+                "definition_pagination": "characters",
+                "conditional_types": {"procedure": "PostgreSQL 11+"},
+                "dependencies": "catalog_recorded_direct",
+                "execute": False,
+            },
             "unsupported": [
                 "unverified remote FDW side effects",
                 "untrusted executable dependencies",
@@ -97,6 +112,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
                 **self._connection_kwargs(source),
                 row_factory=dict_row,
             )
+        error = None
         try:
             set_json_loads(
                 lambda data: json.loads(data, parse_float=Decimal), connection
@@ -143,25 +159,28 @@ class PostgreSQLAdapter(DatabaseAdapter):
                 ):
                     raise RuntimeError("database session did not enter read-only mode")
             yield connection, source, context
-        except Exception as exc:
-            error = translate_error(exc)
-            try:
-                connection.rollback()
-            except Exception:
-                error.cleanup_failed = True
-            try:
-                connection.close()
-            except Exception:
-                error.cleanup_failed = True
+        except BaseException as exc:
+            error = translate_error(exc) if isinstance(exc, Exception) else exc
             if error is exc:
                 raise
             raise error from exc
-        else:
-            try:
-                with error_stage("cleanup"):
-                    connection.rollback()
-            finally:
-                connection.close()
+        finally:
+            cleanup_error = None
+            for operation in (connection.rollback, connection.close):
+                try:
+                    operation()
+                except BaseException as exc:
+                    cleanup_error = cleanup_error or (
+                        translate_error(exc, "cleanup")
+                        if isinstance(exc, Exception)
+                        else exc
+                    )
+            if cleanup_error:
+                if error is not None:
+                    error.cleanup_failed = True
+                else:
+                    cleanup_error.cleanup_failed = True
+                    raise cleanup_error
 
     def _connection_kwargs(self, source: DBeaverConnection) -> dict[str, object]:
         options = " ".join(
@@ -223,6 +242,8 @@ class PostgreSQLAdapter(DatabaseAdapter):
         return {
             "connection_id": context["connection_id"],
             "connection_name": context["connection_name"],
+            "project_id": context.get("project_id", ""),
+            "project_name": context.get("project_name", ""),
             "database": context["database"],
             "schema": context["schema"],
             "connection_source": "DBeaver workspace",
@@ -583,6 +604,197 @@ class PostgreSQLAdapter(DatabaseAdapter):
             indexes=indexes,
             time_filter_candidates=time_candidates,
         )
+
+    @staticmethod
+    def _routine_select(connection):
+        version = connection.info.server_version
+        kind = (
+            "CASE WHEN p.prokind='p' THEN 'procedure' ELSE 'function' END"
+            if version >= 110000
+            else "'function'::text"
+        )
+        predicate = (
+            "p.prokind IN ('f','p')"
+            if version >= 110000
+            else "NOT p.proisagg"
+            + (" AND NOT p.proiswindow" if version >= 80400 else "")
+        )
+        return (
+            "SELECT p.oid::text AS routine_id,n.nspname AS schema,p.proname AS name,"
+            + kind
+            + " AS routine_type, "
+            "l.lanname AS language,LEFT(pg_catalog.oidvectortypes(p.proargtypes),4000) AS signature "
+            "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
+            "JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE "
+            + predicate
+            + " AND pg_catalog.has_schema_privilege(n.oid,'USAGE') "
+            "AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_temp_%%'"
+        )
+
+    def list_routines(
+        self,
+        source,
+        database,
+        *,
+        schema="",
+        name_pattern="",
+        routine_types=None,
+        limit=50,
+    ):
+        selected = ["procedure", "function"] if routine_types is None else routine_types
+        if not selected or set(selected) - {"procedure", "function"}:
+            unsupported("routine_type")
+        with self._connection(source, database, schema) as (connection, _, context):
+            if (
+                connection.info.server_version < 110000
+                and "procedure" in selected
+                and routine_types is not None
+            ):
+                unsupported("procedures_before_postgresql_11")
+            with error_stage("catalog"), connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT * FROM (" + self._routine_select(connection) + ") r "
+                    "WHERE (%(schema)s='' OR r.schema=%(schema)s) AND r.name ILIKE %(pattern)s "
+                    "AND r.routine_type=ANY(%(types)s::text[]) ORDER BY r.schema,r.name,r.routine_id LIMIT %(limit)s",
+                    {
+                        "schema": schema,
+                        "pattern": name_pattern or "%",
+                        "types": selected,
+                        "limit": limit + 1,
+                    },
+                )
+                rows = cursor.fetchmany(limit + 1)
+            return self._response(
+                context,
+                routines=rows[:limit],
+                returned=min(len(rows), limit),
+                truncated=len(rows) > limit,
+                executed=False,
+            )
+
+    def routine_context(
+        self,
+        source,
+        database,
+        schema,
+        routine,
+        *,
+        routine_id="",
+        package="",
+        include_definition=True,
+        definition_part="definition",
+        definition_offset=0,
+        max_definition_chars=4000,
+    ):
+        if package or definition_part != "definition":
+            unsupported("routine_package_or_definition_part")
+        with self._connection(source, database, schema) as (connection, _, context):
+            with error_stage("catalog"), connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT * FROM ("
+                    + self._routine_select(connection)
+                    + ") r WHERE r.schema=%(schema)s "
+                    "AND r.name=%(name)s AND (%(routine_id)s='' OR r.routine_id=%(routine_id)s) LIMIT 2",
+                    {"schema": schema, "name": routine, "routine_id": routine_id},
+                )
+                row = resolve_routine(cursor.fetchmany(2))
+                oid = int(row["routine_id"])
+                cursor.execute(
+                    "SELECT g.i AS ordinal,p.proargnames[g.i] AS name, "
+                    "CASE COALESCE(p.proargmodes[g.i],'i') WHEN 'o' THEN 'out' WHEN 'b' THEN 'inout' "
+                    "WHEN 'v' THEN 'variadic' WHEN 't' THEN 'table' ELSE 'in' END AS direction, "
+                    "pg_catalog.format_type(CASE WHEN p.proallargtypes IS NULL THEN p.proargtypes[g.i-1] "
+                    "ELSE p.proallargtypes[g.i] END,NULL) AS data_type "
+                    "FROM pg_catalog.pg_proc p CROSS JOIN pg_catalog.generate_series(1, "
+                    "(SELECT COALESCE(pg_catalog.array_upper(proallargtypes,1),pronargs) FROM pg_catalog.pg_proc WHERE oid=%(id)s::oid)) g(i) "
+                    "WHERE p.oid=%(id)s::oid ORDER BY g.i LIMIT 201",
+                    {"id": oid},
+                )
+                parameters = cursor.fetchmany(201)
+                cursor.execute(
+                    "SELECT pg_catalog.format_type(p.prorettype,NULL) AS data_type FROM pg_catalog.pg_proc p WHERE p.oid=%(id)s::oid",
+                    {"id": oid},
+                )
+                return_type = cursor.fetchone()["data_type"]
+                cursor.execute(
+                    "SELECT DISTINCT COALESCE(cn.nspname,pn.nspname,tn.nspname) AS schema, "
+                    "COALESCE(c.relname,rp.proname,t.typname) AS name, "
+                    "CASE WHEN c.oid IS NOT NULL THEN 'relation' WHEN rp.oid IS NOT NULL THEN 'routine' ELSE 'type' END AS object_type "
+                    "FROM pg_catalog.pg_depend d "
+                    "LEFT JOIN pg_catalog.pg_class c ON d.refclassid='pg_catalog.pg_class'::regclass AND c.oid=d.refobjid "
+                    "LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid=c.relnamespace "
+                    "LEFT JOIN pg_catalog.pg_proc rp ON d.refclassid='pg_catalog.pg_proc'::regclass AND rp.oid=d.refobjid "
+                    "LEFT JOIN pg_catalog.pg_namespace pn ON pn.oid=rp.pronamespace "
+                    "LEFT JOIN pg_catalog.pg_type t ON d.refclassid='pg_catalog.pg_type'::regclass AND t.oid=d.refobjid "
+                    "LEFT JOIN pg_catalog.pg_namespace tn ON tn.oid=t.typnamespace "
+                    "WHERE d.classid='pg_catalog.pg_proc'::regclass AND d.objid=%(id)s::oid "
+                    "AND d.refclassid IN ('pg_catalog.pg_class'::regclass,'pg_catalog.pg_proc'::regclass,'pg_catalog.pg_type'::regclass) "
+                    "ORDER BY schema,name,object_type LIMIT 201",
+                    {"id": oid},
+                )
+                dependencies = cursor.fetchmany(201)
+                definition = routine_definition(
+                    None, None, definition_offset, "not_requested"
+                )
+                if include_definition:
+                    if row["language"] in {"c", "internal"}:
+                        definition = routine_definition(
+                            None, None, definition_offset, "external"
+                        )
+                    else:
+                        expression = (
+                            "pg_catalog.pg_get_functiondef(p.oid)"
+                            if connection.info.server_version >= 80400
+                            else "p.prosrc"
+                        )
+                        cursor.execute(
+                            "SELECT pg_catalog.length("
+                            + expression
+                            + ") AS total_chars, "
+                            "pg_catalog.substr("
+                            + expression
+                            + ",%(start)s,%(chars)s) AS fragment "
+                            "FROM pg_catalog.pg_proc p WHERE p.oid=%(id)s::oid",
+                            {
+                                "id": oid,
+                                "start": definition_offset + 1,
+                                "chars": min(
+                                    max_definition_chars, self.settings.max_cell_chars
+                                ),
+                            },
+                        )
+                        source_row = cursor.fetchone()
+                        definition = routine_definition(
+                            source_row["fragment"],
+                            source_row["total_chars"],
+                            definition_offset,
+                            "available"
+                            if source_row["total_chars"] is not None
+                            else "unavailable",
+                        )
+            return self._response(
+                context,
+                routine=row,
+                return_type=return_type,
+                parameters=parameters[:200],
+                parameters_truncated=len(parameters) > 200,
+                dependencies=dependencies[:200],
+                dependencies_truncated=len(dependencies) > 200,
+                dependencies_status="available",
+                dependency_scope="catalog_recorded_direct",
+                dependencies_complete=False,
+                definition_scope="routine"
+                if connection.info.server_version >= 80400
+                else "routine_body",
+                **definition,
+                executed=False,
+                permission_scope="database_account",
+                read_only={
+                    "transaction": True,
+                    "session_default": True,
+                    "rollback_on_exit": True,
+                },
+            )
 
     def _prepare_query(self, connection, schema, query) -> BuiltQuery:
         guard = CatalogGuard(connection)

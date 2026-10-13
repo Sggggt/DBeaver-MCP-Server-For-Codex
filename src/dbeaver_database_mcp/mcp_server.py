@@ -1,4 +1,4 @@
-"""Stable entry point for existing MCP registrations."""
+"""STDIO MCP service entry point."""
 
 from .core.mcp_server import main
 
