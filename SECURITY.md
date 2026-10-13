@@ -1,5 +1,31 @@
 # Security Policy
 
+## Runtime boundary
+
+The MCP interface accepts closed JSON arguments, not caller-provided SQL. Routine
+inspection reads fixed system catalogs and never executes the target routine or
+returned definition. All values are bound by the adapter. Native account and
+metadata visibility permissions remain in effect; the tool does not grant rights.
+
+PostgreSQL and Oracle use server-enforced read-only transactions. SQL Server uses
+the closed SELECT language, dependency guards and read-only application intent;
+application intent is not a server-enforced read-only transaction. The observed
+database read-only state is reported separately. The current SQL Server adapter
+supports non-TLS direct transport only and rejects explicit TLS configurations;
+it does not provide transport encryption.
+
+Every session exit, including Python cancellation and process-exit exceptions,
+attempts rollback and connection closure. Cleanup failures are reported through
+`cleanup_failed` and must not be treated as confirmed successful cleanup. Forced
+process termination, machine failure and network loss cannot guarantee immediate
+application cleanup; database cleanup then depends on connection failure handling.
+
+Routine source is untrusted data and can contain hard-coded secrets. Authorized
+definitions are returned to the caller without automatic secret redaction; errors
+and MCP stderr diagnostics omit source, bound values and native error messages.
+The service does not persist business data or definitions to local files, but it
+cannot control storage or actions performed by the calling client.
+
 ## Reporting a vulnerability
 
 Please do not disclose a suspected vulnerability in a public issue. Use the repository hosting service's private vulnerability-reporting feature and include the affected version, impact, reproduction conditions, and any suggested mitigation.

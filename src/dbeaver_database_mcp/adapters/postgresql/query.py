@@ -716,7 +716,7 @@ class Compiler:
         else:
             scope = dict(outer or {})
             local_aliases = set()
-            outputs, projections, legacy_groups = {}, [], []
+            outputs, projections, implicit_groups = {}, [], []
             source = query.get("from")
             if "table" in query:
                 if source is not None:
@@ -813,7 +813,7 @@ class Compiler:
                     for name in scope[ref["source"]]:
                         expression = ident(ref["source"], name)
                         output(expression, name, (*path, "columns", i))
-                        legacy_groups.append(expression)
+                        implicit_groups.append(expression)
                 else:
                     expression = self.expr(
                         ref, scope, outputs, ctes, (*path, "columns", i)
@@ -823,7 +823,7 @@ class Compiler:
                         column.get("as", column["column"]),
                         (*path, "columns", i, "as"),
                     )
-                    legacy_groups.append(expression)
+                    implicit_groups.append(expression)
             for i, item in enumerate(query.get("select", [])):
                 output(
                     self.expr(
@@ -887,7 +887,7 @@ class Compiler:
                     for i, e in enumerate(query["group_by"])
                 ]
                 if "group_by" in query
-                else (legacy_groups if query.get("aggregates") else [])
+                else (implicit_groups if query.get("aggregates") else [])
             )
             if groups:
                 body += literal(" GROUP BY ") + joined(", ", groups)

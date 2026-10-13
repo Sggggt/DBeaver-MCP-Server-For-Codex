@@ -10,8 +10,14 @@ from .errors import QueryRejected
 ADAPTERS = {
     "postgresql": ("postgresql.adapter", "PostgreSQLAdapter"),
     "oracle": ("oracle.adapter", "OracleAdapter"),
+    "sqlserver": ("sqlserver.adapter", "SQLServerAdapter"),
 }
-PROVIDERS = {"postgresql": "postgresql", "oracle": "oracle"}
+PROVIDERS = {
+    "postgresql": "postgresql",
+    "oracle": "oracle",
+    "sqlserver": "sqlserver",
+    "mssql": "sqlserver",
+}
 
 
 def adapter_class(database_type: str) -> type[DatabaseAdapter]:

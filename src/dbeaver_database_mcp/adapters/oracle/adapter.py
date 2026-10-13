@@ -7,7 +7,12 @@ from decimal import Decimal
 
 import oracledb
 
-from ...core.adapter import DatabaseAdapter, unsupported
+from ...core.adapter import (
+    DatabaseAdapter,
+    resolve_routine,
+    routine_definition,
+    unsupported,
+)
 from ...core.errors import QueryRejected, error_stage, register_error_translator
 from ...core.validation import validate_query
 from .catalog_guard import CatalogGuard
@@ -39,6 +44,18 @@ CATALOG = (
     "WHERE o.object_type IN ('TABLE','VIEW','MATERIALIZED VIEW') "
     "AND (o.object_type<>'TABLE' OR NOT EXISTS (SELECT 1 FROM SYS.ALL_MVIEWS m "
     "WHERE m.owner=o.owner AND m.mview_name=o.object_name)) "
+)
+ROUTINES = (
+    "SELECT TO_CHAR(p.object_id)||':'||TO_CHAR(NVL(p.subprogram_id,0)) AS routine_id, "
+    'p.owner AS "schema",NVL(p.procedure_name,p.object_name) AS "name", '
+    "CASE WHEN p.procedure_name IS NOT NULL THEN p.object_name END AS package, "
+    "CASE WHEN p.object_type='PACKAGE' AND p.procedure_name IS NULL THEN 'package' "
+    "WHEN p.object_type='FUNCTION' OR EXISTS (SELECT 1 FROM SYS.ALL_ARGUMENTS a "
+    "WHERE a.object_id=p.object_id AND a.subprogram_id=p.subprogram_id AND a.position=0) "
+    "THEN 'function' ELSE 'procedure' END AS routine_type, "
+    "p.object_id,p.subprogram_id,p.overload,o.status AS object_status "
+    "FROM SYS.ALL_PROCEDURES p JOIN SYS.ALL_OBJECTS o ON o.object_id=p.object_id "
+    "WHERE p.object_type IN ('PROCEDURE','FUNCTION','PACKAGE')"
 )
 NLS_SETTINGS = {
     "NLS_LANGUAGE",
@@ -115,6 +132,17 @@ class OracleAdapter(DatabaseAdapter):
             "explain": False,
             "database_settings": "nls_session",
             "postgresql_logs": False,
+            "routine_catalog": {
+                "list": True,
+                "parameters": True,
+                "definition": True,
+                "types": ["procedure", "function", "package"],
+                "definition_pagination": "characters",
+                "definition_parts": ["definition", "specification", "body"],
+                "package_member_definition_scope": "package",
+                "dependencies": "catalog_recorded_direct",
+                "execute": False,
+            },
             "unsupported": [
                 "explain_plan_writes",
                 "recursive_cte",
@@ -369,6 +397,189 @@ class OracleAdapter(DatabaseAdapter):
             foreign_keys=[row for row in keys if row["constraint_type"] == "R"],
             indexes=indexes,
         )
+
+    def list_routines(
+        self,
+        source,
+        database,
+        *,
+        schema="",
+        name_pattern="",
+        routine_types=None,
+        limit=50,
+    ):
+        selected = (
+            ["procedure", "function", "package"]
+            if routine_types is None
+            else routine_types
+        )
+        if not selected or set(selected) - {"procedure", "function", "package"}:
+            unsupported("routine_type")
+        binds = {
+            "schema": schema or None,
+            "pattern": name_pattern or "%",
+            "limit": limit + 1,
+            **{f"kind{i}": kind for i, kind in enumerate(selected)},
+        }
+        markers = ",".join(f":kind{i}" for i in range(len(selected)))
+        with open_session(source, self.settings, database) as session:
+            if schema:
+                self._context(session, source, schema)
+            rows = session.rows(
+                "SELECT r.* FROM ("
+                + ROUTINES
+                + ') r WHERE (:schema IS NULL OR r."schema"=:schema) '
+                'AND LOWER(r."name") LIKE LOWER(:pattern) AND r.routine_type IN ('
+                + markers
+                + ") "
+                'ORDER BY r."schema",r.package,r."name",r.routine_id FETCH FIRST :limit ROWS ONLY',
+                binds,
+                limit=limit + 1,
+            )
+        return self._response(
+            source,
+            schema,
+            routines=rows[:limit],
+            returned=min(len(rows), limit),
+            truncated=len(rows) > limit,
+            executed=False,
+        )
+
+    def routine_context(
+        self,
+        source,
+        database,
+        schema,
+        routine,
+        *,
+        routine_id="",
+        package="",
+        include_definition=True,
+        definition_part="definition",
+        definition_offset=0,
+        max_definition_chars=4000,
+    ):
+        binds = {
+            "schema": schema,
+            "name": routine,
+            "package": package or None,
+            "routine_id": routine_id or None,
+        }
+        with open_session(source, self.settings, database) as session:
+            self._context(session, source, schema)
+            row = resolve_routine(
+                session.rows(
+                    "SELECT r.* FROM ("
+                    + ROUTINES
+                    + ') r WHERE r."schema"=:schema AND r."name"=:name '
+                    "AND ((:package IS NULL AND r.package IS NULL) OR r.package=:package) "
+                    "AND (:routine_id IS NULL OR r.routine_id=:routine_id) FETCH FIRST 2 ROWS ONLY",
+                    binds,
+                    limit=2,
+                )
+            )
+            is_package = bool(row["package"]) or row["routine_type"] == "package"
+            if not is_package and definition_part != "definition":
+                unsupported("routine_definition_part")
+            source_type = (
+                ("PACKAGE" if definition_part == "specification" else "PACKAGE BODY")
+                if is_package
+                else row["routine_type"].upper()
+            )
+            source_name = row["package"] or row["name"]
+            source_binds = {"owner": schema, "name": source_name, "type": source_type}
+            parameters = (
+                []
+                if row["routine_type"] == "package"
+                else session.rows(
+                    'SELECT position AS "ordinal",argument_name AS "name",data_type,type_owner AS type_schema,type_name,type_subname, '
+                    "CASE WHEN position=0 THEN 'return' WHEN in_out='IN/OUT' THEN 'inout' ELSE LOWER(in_out) END AS direction, "
+                    "CASE WHEN defaulted='Y' THEN 1 ELSE 0 END AS has_default "
+                    "FROM SYS.ALL_ARGUMENTS WHERE object_id=:object_id AND subprogram_id=:subprogram_id AND data_level=0 "
+                    "ORDER BY sequence FETCH FIRST 201 ROWS ONLY",
+                    {
+                        "object_id": row["object_id"],
+                        "subprogram_id": row["subprogram_id"],
+                    },
+                    limit=201,
+                )
+            )
+            for parameter in parameters:
+                parameter["ordinal"] = int(parameter["ordinal"])
+                parameter["has_default"] = bool(parameter["has_default"])
+            dependencies = session.rows(
+                'SELECT referenced_owner AS "schema",referenced_name AS "name",referenced_type AS object_type, '
+                "CASE WHEN referenced_link_name IS NULL THEN 0 ELSE 1 END AS remote FROM SYS.ALL_DEPENDENCIES "
+                "WHERE owner=:owner AND name=:name AND type=:type "
+                "ORDER BY referenced_owner,referenced_name,referenced_type FETCH FIRST 201 ROWS ONLY",
+                source_binds,
+                limit=201,
+            )
+            definition = routine_definition(
+                None, None, definition_offset, "not_requested"
+            )
+            if include_definition:
+                info = session.rows(
+                    "SELECT COUNT(*) AS line_count,NVL(SUM(LENGTH(text)),0) AS total_chars, "
+                    "MAX(CASE WHEN line<=10 AND (REGEXP_LIKE(text,'^[[:space:]]*(procedure|function|package)[[:space:]].*wrapped[[:space:]]*$','i') "
+                    "OR REGEXP_LIKE(text,'^[[:space:]]*wrapped[[:space:]]*$','i')) "
+                    "THEN 1 ELSE 0 END) AS wrapped FROM SYS.ALL_SOURCE WHERE owner=:owner AND name=:name AND type=:type",
+                    source_binds,
+                    limit=1,
+                )[0]
+                status = (
+                    "wrapped"
+                    if info["wrapped"] == 1
+                    else "available"
+                    if info["line_count"]
+                    else "unavailable"
+                )
+                fragment = None
+                if status == "available":
+                    count = min(max_definition_chars, self.settings.max_cell_chars)
+                    pieces = session.rows(
+                        "SELECT SUBSTR(text,GREATEST(:offset-start_char+1,1), "
+                        "LEAST(end_char,:end_char)-GREATEST(start_char,:offset)) AS fragment "
+                        "FROM (SELECT line,text,NVL(SUM(LENGTH(text)) OVER (ORDER BY line ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS start_char, "
+                        "SUM(LENGTH(text)) OVER (ORDER BY line ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS end_char "
+                        "FROM SYS.ALL_SOURCE WHERE owner=:owner AND name=:name AND type=:type) "
+                        "WHERE end_char>:offset AND start_char<:end_char ORDER BY line FETCH FIRST :row_limit ROWS ONLY",
+                        source_binds
+                        | {
+                            "offset": definition_offset,
+                            "end_char": definition_offset + count,
+                            "row_limit": count + 1,
+                        },
+                        limit=count + 1,
+                    )
+                    fragment = "".join(piece["fragment"] or "" for piece in pieces)
+                definition = routine_definition(
+                    fragment, int(info["total_chars"]), definition_offset, status
+                )
+            return self._response(
+                source,
+                schema,
+                routine=row,
+                parameters=parameters[:200],
+                parameters_truncated=len(parameters) > 200,
+                dependencies=dependencies[:200],
+                dependencies_truncated=len(dependencies) > 200,
+                dependencies_status="available",
+                dependency_scope="catalog_recorded_direct",
+                dependencies_complete=False,
+                definition_scope=source_type.lower().replace(" ", "_")
+                if is_package
+                else "routine",
+                definition_owner=source_name,
+                **definition,
+                executed=False,
+                permission_scope="database_account",
+                read_only={
+                    "transaction": True,
+                    "session_default": None,
+                    "rollback_on_exit": True,
+                },
+            )
 
     def _transport(self, built, description, max_identifier_bytes):
         projections, metadata = [], []

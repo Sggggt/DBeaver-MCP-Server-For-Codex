@@ -15,7 +15,7 @@ class Table:
 
 
 def requested_relations(
-    query: dict, default_schema: str
+    query: dict, default_schema: str, *, max_identifier_bytes: int = 128
 ) -> list[tuple[str, str, bool]]:
     validate_query(query)
     found = {}
@@ -27,7 +27,9 @@ def requested_relations(
         if "table" in node:
             key = (schema, node["table"])
             if any(
-                not name or "\x00" in name or len(name.encode("utf-8")) > 128
+                not name
+                or "\x00" in name
+                or len(name.encode("utf-8")) > max_identifier_bytes
                 for name in key
             ):
                 raise QueryRejected(

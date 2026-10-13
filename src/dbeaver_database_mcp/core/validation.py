@@ -27,6 +27,15 @@ def path_string(parts) -> str:
         "since",
         "max_bytes",
         "timeout_ms",
+        "routine",
+        "routine_id",
+        "package",
+        "routine_types",
+        "name_pattern",
+        "include_definition",
+        "definition_part",
+        "definition_offset",
+        "max_definition_chars",
     }
 
     def collect(node):

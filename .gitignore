@@ -12,6 +12,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+tests/
 .ruff_cache/
 .mypy_cache/
 .coverage
@@ -25,7 +26,6 @@ audit/
 verification/
 data-sources.json
 credentials-config.json
-Open-DBeaverConnection.ps1
 *.log
 *.csv
 *.tsv
