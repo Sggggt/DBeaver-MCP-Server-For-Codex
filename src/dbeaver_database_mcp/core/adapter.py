@@ -45,7 +45,7 @@ def resolve_routine(rows: list[Result]) -> Result:
     return rows[0]
 
 
-def routine_definition(text, total_chars, offset, status, returned_chars=None):
+def object_definition(text, total_chars, offset, status, returned_chars=None):
     """Normalize bounded source fragments; the returned SQL is data, never input."""
     available = status == "available"
     text = (text or "") if available else None
@@ -59,6 +59,39 @@ def routine_definition(text, total_chars, offset, status, returned_chars=None):
         "definition_truncated": bool(more),
         "next_definition_offset": end if more else None,
         "definition_offset_units": "database_characters",
+    }
+
+
+# Preserve the existing helper used by routine adapters and SDK consumers.
+routine_definition = object_definition
+
+
+def resolve_view(rows: list[Result]) -> Result:
+    if len(rows) != 1:
+        raise QueryRejected(
+            "视图不存在、当前账号不可见或身份无法唯一确认。",
+            code="VIEW_NOT_FOUND" if not rows else "VIEW_AMBIGUOUS",
+            path="view",
+            stage="catalog",
+            hint="使用 scan_database 返回的精确 database/schema/视图名。",
+        )
+    return rows[0]
+
+
+def view_dependencies(rows, offset, limit, status):
+    available = status == "available"
+    page = rows[:limit] if available else []
+    more = available and len(rows) > limit
+    return {
+        "dependencies": page,
+        "dependencies_status": status,
+        "dependencies_offset": offset,
+        "returned_dependencies": len(page),
+        "dependencies_truncated": more,
+        "next_dependencies_offset": offset + len(page) if more else None,
+        "dependency_scope": "catalog_recorded_direct",
+        "dependency_granularity": "object",
+        "dependencies_complete": False,
     }
 
 
@@ -189,6 +222,23 @@ class DatabaseAdapter(ABC):
         max_definition_chars: int = 4000,
     ) -> Result:
         unsupported("routine_catalog")
+
+    def view_context(
+        self,
+        source: DBeaverConnection,
+        database: str,
+        schema: str,
+        view: str,
+        *,
+        include_definition: bool = True,
+        definition_offset: int = 0,
+        max_definition_chars: int = 4000,
+        include_dependencies: bool = True,
+        dependencies_offset: int = 0,
+        dependencies_limit: int = 100,
+    ) -> Result:
+        """Read catalog metadata without applying the SELECT execution guard."""
+        unsupported("view_catalog")
 
     def read_postgresql_logs(
         self,

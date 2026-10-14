@@ -29,6 +29,7 @@ from .query import (
     identifier,
 )
 from .session import open_session
+from .view_catalog import read_view_context
 
 register_error_translator(translate_database_error)
 
@@ -115,17 +116,34 @@ class SQLServerAdapter(DatabaseAdapter):
                 "case",
                 "top",
                 "projected_output_ordering",
+                "view_execution",
             ],
             "conditional_features": {
-                "offset": "SQL Server 2012+ and explicit projected output ordering"
+                "offset": "SQL Server 2012+ and explicit projected output ordering",
+                "view_execution": "visible QUOTED_IDENTIFIER ON definition; allowlisted SELECT syntax and builtins; recursively verified local table/view dependencies; database VIEW DEFINITION and SELECT on sys.sql_expression_dependencies",
             },
             "explain": False,
             "database_settings": "database_properties",
             "postgresql_logs": False,
+            "view_catalog": {
+                "context": True,
+                "definition": True,
+                "dependencies": "catalog_recorded_direct",
+                "dependency_granularity": "object",
+                "definition_pagination": "characters",
+                "dependency_pagination": "offset",
+                "types": ["view"],
+                "execute": False,
+                "conditional_features": {
+                    "definition_offset_units": "SQL Server 2008 uses UTF-16 code units; SQL Server 2012+ uses database characters"
+                },
+            },
             "read_only": READ_ONLY,
             "unsupported": [
                 "server_enforced_read_only_transaction",
-                "view_execution",
+                "encrypted_or_unverifiable_views",
+                "cross_database_dependencies",
+                "user_defined_functions",
                 "synonyms",
                 "computed_columns",
                 "clr_or_alias_types",
@@ -353,6 +371,9 @@ class SQLServerAdapter(DatabaseAdapter):
             indexes=keys[:1024],
             truncated=len(columns) > 1024 or len(keys) > 1024,
         )
+
+    def view_context(self, source, database, schema, view, **options):
+        return read_view_context(self, source, database, schema, view, **options)
 
     def list_routines(
         self,

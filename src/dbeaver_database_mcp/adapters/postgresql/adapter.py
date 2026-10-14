@@ -30,6 +30,7 @@ from .catalog_guard import CatalogGuard
 from .connection import parse_configuration
 from .errors import translate_database_error
 from .query import BuiltQuery, QueryRejected, compile_query, requested_relations
+from .view_catalog import read_view_context
 
 register_error_translator(translate_database_error)
 
@@ -61,6 +62,20 @@ class PostgreSQLAdapter(DatabaseAdapter):
             "explain": True,
             "database_settings": True,
             "postgresql_logs": True,
+            "view_catalog": {
+                "context": True,
+                "definition": True,
+                "dependencies": "catalog_recorded_direct",
+                "dependency_granularity": "object",
+                "definition_pagination": "characters",
+                "dependency_pagination": "offset",
+                "types": ["view", "materialized_view"],
+                "conditional_types": {"materialized_view": "PostgreSQL 9.3+"},
+                "execute": False,
+                "conditional_features": {
+                    "dependency_identity_fields": "PostgreSQL 9.3+; older versions return catalog/object IDs and a description"
+                },
+            },
             "routine_catalog": {
                 "list": True,
                 "parameters": True,
@@ -604,6 +619,9 @@ class PostgreSQLAdapter(DatabaseAdapter):
             indexes=indexes,
             time_filter_candidates=time_candidates,
         )
+
+    def view_context(self, source, database, schema, view, **options):
+        return read_view_context(self, source, database, schema, view, **options)
 
     @staticmethod
     def _routine_select(connection):

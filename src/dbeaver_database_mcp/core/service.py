@@ -115,6 +115,12 @@ class DatabaseService:
         adapter, source = self._route(identifier)
         return adapter.list_routines(source, database, **options)
 
+    def view_context(
+        self, identifier: str, database: str, schema: str, view: str, **options
+    ):
+        adapter, source = self._route(identifier)
+        return adapter.view_context(source, database, schema, view, **options)
+
     def routine_context(
         self, identifier: str, database: str, schema: str, routine: str, **options
     ):

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dbeaver-database-mcp"
-version = "0.9.2"
+version = "0.10.0"
 description = "Structured read-only MCP with database adapters for saved DBeaver connections"
 readme = "README.md"
 requires-python = ">=3.11"
