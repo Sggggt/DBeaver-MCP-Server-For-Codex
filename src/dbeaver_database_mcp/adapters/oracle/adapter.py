@@ -105,6 +105,12 @@ class OracleAdapter(DatabaseAdapter):
     @classmethod
     def capabilities(cls):
         return {
+            "view_catalog": {
+                "context": False,
+                "definition": False,
+                "dependencies": False,
+                "execute": False,
+            },
             "database_type": cls.database_type,
             "minimum_version": "12.1",
             "driver_mode": "thin",
