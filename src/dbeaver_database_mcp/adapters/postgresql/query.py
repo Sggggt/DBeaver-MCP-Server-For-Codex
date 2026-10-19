@@ -918,7 +918,10 @@ class Compiler:
 def compile_query(
     schema: str, query: dict, catalog: dict, max_cell_chars=4000
 ) -> BuiltQuery:
+    from ...core.validation import reject_qualified_targets
+
     validate_query(query)
+    reject_qualified_targets(query)
     with error_stage("compile"):
         compiler = Compiler(schema, catalog)
         fragment, names = compiler.query(query, top=True)

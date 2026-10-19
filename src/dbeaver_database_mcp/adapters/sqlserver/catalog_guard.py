@@ -7,6 +7,7 @@ from sqlglot.tokens import TokenType
 
 from ...core.catalog import Table, requested_relations
 from ...core.errors import QueryRejected
+from .catalog_scope import CatalogScope
 from .query import identifier
 
 SAFE_TYPES = {
@@ -234,71 +235,145 @@ class ViewParser(TSQL.Parser):
         )
 
 
+class LegacyTSQL(TSQL):
+    class Tokenizer(TSQL.Tokenizer):
+        # With QUOTED_IDENTIFIER OFF, double quotes delimit strings; brackets
+        # still delimit identifiers. Tokenization preserves comments/escapes.
+        IDENTIFIERS = [("[", "]")]
+
+
 class CatalogGuard:
-    def __init__(self, session):
+    def __init__(self, session, *, database="", server="", root=None):
         self.session = session
-        self.verified = {}
-        self.heights = {}
-        self.visiting = set()
+        self.database, self.server = (
+            database or getattr(session, "database", ""),
+            server,
+        )
+        self.root = root or self
+        if root is None:
+            self.verified, self.heights, self.visiting, self.scopes = {}, {}, set(), {}
+        else:
+            self.verified, self.heights, self.visiting = (
+                root.verified,
+                root.heights,
+                root.visiting,
+            )
+        self.root.scopes[server, self.database] = self
+
+    def key(self, oid):
+        return self.server, self.database, oid
+
+    def scope(self, database, server=""):
+        key = server, database
+        if key not in self.root.scopes:
+            if len(self.root.scopes) >= 32:
+                self.reject("DEPENDENCY_LIMIT")
+            session = CatalogScope(self.root.session, database, server)
+            guard = CatalogGuard(
+                session, database=database, server=server, root=self.root
+            )
+            guard.visibility()
+        return self.root.scopes[key]
+
+    def visibility(self):
+        rows = self.session.rows(
+            "SELECT HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW DEFINITION') AS allowed",
+            limit=1,
+        )
+        if not rows or rows[0]["allowed"] != 1:
+            self.reject("DEPENDENCY_VISIBILITY_REQUIRED")
+
+    def relation(self, schema, name):
+        identifier(schema)
+        identifier(name)
+        rows = self.session.rows(
+            "SELECT o.object_id, o.type, o.is_ms_shipped FROM sys.objects o "
+            "JOIN sys.schemas s ON s.schema_id=o.schema_id WHERE s.name=%(schema)s AND o.name=%(table)s",
+            {"schema": schema, "table": name},
+            limit=2,
+        )
+        if len(rows) != 1:
+            self.reject("TABLE_NOT_FOUND")
+        return rows[0]
 
     def reject(self, code="UNSAFE_DEPENDENCY"):
         raise QueryRejected(
             "SQL Server 对象无法通过只读依赖检查。",
             code=code,
             stage="safety",
-            hint="仅执行依赖可核验的本地表和视图；视图定义须可见，不含跨库引用、同义词、自定义函数、计算列、CLR、外部表或行安全策略。",
+            hint="目标及依赖须有可核验目录权限；拒绝不可见定义、同义词、自定义函数、计算列、CLR、外部表及行安全策略。",
         )
 
     def columns(self, object_id):
         return self.session.rows(
             "SELECT TOP (1025) c.column_id, c.name, t.name AS data_type, c.max_length, "
             "c.precision, c.scale, c.is_nullable, c.is_computed, t.is_assembly_type, t.is_user_defined, "
+            "bt.name AS base_type, t.is_table_type, SCHEMA_NAME(t.schema_id) AS type_schema, "
             "HAS_PERMS_BY_NAME(QUOTENAME(OBJECT_SCHEMA_NAME(c.object_id))+'.'+QUOTENAME(OBJECT_NAME(c.object_id)), "
             "'OBJECT','SELECT',c.name,'COLUMN') AS can_select "
             "FROM sys.columns c JOIN sys.types t ON t.user_type_id=c.user_type_id "
+            "LEFT JOIN sys.types bt ON bt.user_type_id=t.system_type_id AND bt.system_type_id=bt.user_type_id "
             "WHERE c.object_id=%(id)s ORDER BY c.column_id",
             {"id": object_id},
             limit=1025,
         )
 
     def prepare(self, query, schema):
-        relations = requested_relations(query, schema, max_identifier_bytes=512)
+        # The shared collector handles all nested query forms. It deliberately
+        # does not treat literal JSON content as syntax.
+        requested_relations(query, schema, max_identifier_bytes=512)
+        relations = set()
+
+        def walk(node, namespace):
+            if isinstance(node, dict):
+                namespace = node.get("schema", namespace)
+                if "table" in node:
+                    if "server" in node and "database" not in node:
+                        self.reject("MISSING_PARAMETER")
+                    relations.add(
+                        tuple(node[k] for k in ("server", "database") if k in node)
+                        + (namespace, node["table"])
+                    )
+                for key, value in node.items():
+                    if key not in {"value", "values"}:
+                        walk(value, namespace)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item, namespace)
+
+        walk(query, schema)
+        if len(relations) > 64:
+            self.reject("DEPENDENCY_LIMIT")
         catalog = {}
         if relations:
             # Object visibility alone cannot prove that no hidden policy exists.
-            permission = self.session.rows(
-                "SELECT HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW DEFINITION') AS allowed",
-                limit=1,
-            )[0]["allowed"]
-            if permission != 1:
-                self.reject("DEPENDENCY_VISIBILITY_REQUIRED")
-        for namespace, name, _ in relations:
-            identifier(namespace)
-            identifier(name)
-            rows = self.session.rows(
-                "SELECT o.object_id, o.type, o.is_ms_shipped FROM sys.objects o "
-                "JOIN sys.schemas s ON s.schema_id=o.schema_id WHERE s.name=%(schema)s AND o.name=%(table)s",
-                {"schema": namespace, "table": name},
-                limit=2,
+            self.visibility()
+        for relation in sorted(relations):
+            server, database, namespace, name = (
+                relation
+                if len(relation) == 4
+                else ("", relation[0], *relation[1:])
+                if len(relation) == 3
+                else (self.server, self.database, *relation)
             )
-            if len(rows) != 1:
-                self.reject("TABLE_NOT_FOUND")
-            catalog[namespace, name] = self.object(rows[0])
+            guard = self.scope(database, server) if len(relation) > 2 else self
+            catalog[relation] = guard.object(guard.relation(namespace, name))
         return catalog
 
     def object(self, row, depth=0):
         oid, kind = row["object_id"], row["type"].strip()
-        if oid in self.visiting:
+        key = self.key(oid)
+        if key in self.visiting:
             self.reject("UNVERIFIED_VIEW_DEPENDENCY")
-        if oid in self.verified:
-            if depth + self.heights[oid] >= MAX_DEPTH:
+        if key in self.verified:
+            if depth + self.heights[key] >= MAX_DEPTH:
                 self.reject("DEPENDENCY_LIMIT")
-            return self.verified[oid]
+            return self.verified[key]
         if depth >= MAX_DEPTH or len(self.verified) + len(self.visiting) >= MAX_OBJECTS:
             self.reject("DEPENDENCY_LIMIT")
         if kind not in {"U", "V"} or row["is_ms_shipped"]:
             self.reject("UNVERIFIED_VIEW_OR_SYNONYM")
-        self.visiting.add(oid)
+        self.visiting.add(key)
         if self.session.major_version >= 13:
             if self.session.rows(
                 "SELECT TOP (1) object_id FROM sys.external_tables WHERE object_id=%(id)s",
@@ -321,20 +396,21 @@ class CatalogGuard:
             self.reject("UNSAFE_COMPUTED_COLUMN")
         if any(
             c["is_assembly_type"]
-            or c["is_user_defined"]
-            or c["data_type"] not in SAFE_TYPES
+            or c.get("is_table_type", False)
+            or (c.get("base_type") if c["is_user_defined"] else c["data_type"])
+            not in SAFE_TYPES
             for c in columns
         ):
             self.reject("UNSUPPORTED_TYPE")
         height = self.view(oid, depth) if kind == "V" else 0
         table = Table(
             oid,
-            {c["name"]: c["data_type"] for c in columns},
+            {c["name"]: c.get("base_type") or c["data_type"] for c in columns},
             frozenset(c["name"] for c in columns if c["can_select"] == 1),
         )
-        self.visiting.remove(oid)
-        self.verified[oid] = table
-        self.heights[oid] = height
+        self.visiting.remove(key)
+        self.verified[key] = table
+        self.heights[key] = height
         return table
 
     def definition(self, oid):
@@ -349,8 +425,9 @@ class CatalogGuard:
         size = rows[0]["definition_bytes"]
         if not 0 < size <= MAX_DEFINITION_BYTES:
             self.reject("DEPENDENCY_LIMIT")
-        if rows[0]["uses_quoted_identifier"] != 1:
+        if rows[0]["uses_quoted_identifier"] not in (0, 1):
             self.reject("UNVERIFIED_VIEW_DEFINITION")
+        self.quoted_identifier = bool(rows[0]["uses_quoted_identifier"])
         # TEXTSIZE is 16384 bytes. Fetch bounded binary chunks, then decode once:
         # this also avoids splitting surrogate pairs on pre-2012 collations.
         chunks = []
@@ -372,9 +449,10 @@ class CatalogGuard:
         except UnicodeError:
             self.reject("UNVERIFIED_VIEW_DEFINITION")
 
-    def view_sources(self, definition):
+    def view_sources(self, definition, quoted_identifier=True):
         try:
-            tokens = TSQL().tokenize(definition)
+            dialect = TSQL() if quoted_identifier else LegacyTSQL()
+            tokens = dialect.tokenize(definition)
             if len(tokens) > MAX_VIEW_NODES * 2:
                 self.reject("DEPENDENCY_LIMIT")
             # sys.sql_modules retains CREATE, ALTER or CREATE OR ALTER headers.
@@ -398,9 +476,9 @@ class CatalogGuard:
                 body = body[:-1]
             if [t.text.upper() for t in body[-3:]] == ["WITH", "CHECK", "OPTION"]:
                 body = body[:-3]
-            statements = ViewParser(error_level=ErrorLevel.RAISE, dialect="tsql").parse(
-                body, definition
-            )
+            statements = ViewParser(
+                error_level=ErrorLevel.RAISE, dialect=dialect
+            ).parse(body, definition)
             if len(statements) != 1 or not isinstance(
                 statements[0], (exp.Select, exp.Union, exp.Intersect, exp.Except)
             ):
@@ -420,6 +498,14 @@ class CatalogGuard:
                     )
                     if node.name.upper() not in allowed:
                         self.reject("UNVERIFIED_VIEW_DEFINITION")
+                elif isinstance(node, exp.Dot):
+                    # Four-part relation names are represented with Dot. A
+                    # qualified function/member expression must still fail.
+                    parent = node.parent
+                    while isinstance(parent, exp.Dot):
+                        parent = parent.parent
+                    if not isinstance(parent, exp.Table):
+                        self.reject("UNSAFE_FUNCTION")
                 elif type(node).__name__ in SAFE_SYNTAX:
                     pass
                 elif isinstance(node, exp.Func):
@@ -433,11 +519,14 @@ class CatalogGuard:
                 else:
                     self.reject("UNVERIFIED_VIEW_DEFINITION")
                 if isinstance(node, exp.Table) and (
-                    node.catalog or not isinstance(node.this, exp.Identifier)
+                    not 1 <= len(node.parts) <= 4
+                    or any(not isinstance(part, exp.Identifier) for part in node.parts)
                 ):
                     self.reject("UNVERIFIED_FOREIGN_READER")
             return {
-                (source.db, source.name)
+                tuple(part.name for part in source.parts)
+                if len(source.parts) > 1
+                else ("", source.name)
                 for scope in traverse_scope(statement)
                 for source in scope.sources.values()
                 if isinstance(source, exp.Table)
@@ -449,7 +538,8 @@ class CatalogGuard:
             self.reject("UNVERIFIED_VIEW_DEFINITION")
 
     def view(self, oid, depth):
-        sources = self.view_sources(self.definition(oid))
+        definition = self.definition(oid)
+        sources = self.view_sources(definition, self.quoted_identifier)
         access = self.session.rows(
             "SELECT HAS_PERMS_BY_NAME('sys.sql_expression_dependencies','OBJECT','SELECT') AS allowed",
             limit=1,
@@ -459,18 +549,19 @@ class CatalogGuard:
         dependencies = self.session.rows(
             "SELECT DISTINCT TOP (257) referenced_class, referenced_id, referenced_server_name, "
             "referenced_database_name, is_caller_dependent, is_ambiguous "
+            ", referenced_schema_name, referenced_entity_name "
             "FROM sys.sql_expression_dependencies WHERE referencing_id=%(id)s",
             {"id": oid},
             limit=257,
         )
         if len(dependencies) > MAX_OBJECTS:
             self.reject("DEPENDENCY_LIMIT")
+        if any(len(source) > 2 for source in sources) or any(
+            d["referenced_database_name"] or d["referenced_server_name"]
+            for d in dependencies
+        ):
+            return self.foreign_view(oid, depth, sources, dependencies)
         for dependency in dependencies:
-            if (
-                dependency["referenced_server_name"]
-                or dependency["referenced_database_name"]
-            ):
-                self.reject("UNVERIFIED_FOREIGN_READER")
             if (
                 dependency["referenced_class"] != 1
                 or dependency["referenced_id"] is None
@@ -507,5 +598,80 @@ class CatalogGuard:
             if len(rows) != 1:
                 self.reject("UNVERIFIED_VIEW_DEPENDENCY")
             self.object(rows[0], depth + 1)
-            height = max(height, 1 + self.heights[dependency_id])
+            height = max(height, 1 + self.heights[self.key(dependency_id)])
+        return height
+
+    def foreign_view(self, oid, depth, sources, dependencies):
+        resolved, height = set(), 0
+
+        def identity(d):
+            return tuple(
+                d.get(k)
+                for k in (
+                    "referenced_class",
+                    "referenced_id",
+                    "referenced_server_name",
+                    "referenced_database_name",
+                    "referenced_schema_name",
+                    "referenced_entity_name",
+                )
+            )
+
+        for dependency in dependencies:
+            if (
+                dependency["referenced_class"] != 1
+                or dependency["is_caller_dependent"]
+                or dependency["is_ambiguous"]
+            ):
+                self.reject("UNVERIFIED_VIEW_DEPENDENCY")
+        for source in sorted(sources):
+            server, database, schema, name = (
+                ("", "", *source)
+                if len(source) == 2
+                else ("", *source)
+                if len(source) == 3
+                else source
+            )
+            # Names on a second linked server belong to the remote server's
+            # configuration, not the initiating server. Never guess a route.
+            if self.server and server:
+                self.reject("MULTIHOP_LINKED_SERVER")
+            rows = self.session.rows(
+                "SELECT DISTINCT TOP (2) d.referenced_class, d.referenced_id, d.referenced_server_name, "
+                "d.referenced_database_name, d.referenced_schema_name, d.referenced_entity_name "
+                "FROM sys.sql_expression_dependencies d LEFT JOIN sys.objects o ON o.object_id=d.referenced_id "
+                "LEFT JOIN sys.schemas s ON s.schema_id=o.schema_id WHERE d.referencing_id=%(id)s "
+                "AND d.referenced_entity_name=%(name)s AND COALESCE(d.referenced_server_name,'')=%(server)s "
+                "AND COALESCE(d.referenced_database_name,'')=%(database)s "
+                "AND (%(schema)s='' OR COALESCE(d.referenced_schema_name,s.name)=%(schema)s)",
+                {
+                    "id": oid,
+                    "name": name,
+                    "schema": schema,
+                    "database": database,
+                    "server": server,
+                },
+                limit=2,
+            )
+            if len(rows) != 1 or identity(rows[0]) not in {
+                identity(d) for d in dependencies
+            }:
+                self.reject("UNVERIFIED_VIEW_DEPENDENCY")
+            dependency = rows[0]
+            resolved.add(identity(dependency))
+            target = self.scope(database or self.database, server or self.server)
+            target_schema = dependency.get("referenced_schema_name") or schema
+            if not target_schema:
+                self.reject("UNVERIFIED_VIEW_DEPENDENCY")
+            row = target.relation(target_schema, dependency["referenced_entity_name"])
+            if (
+                not database
+                and not server
+                and dependency["referenced_id"] != row["object_id"]
+            ):
+                self.reject("UNVERIFIED_VIEW_DEPENDENCY")
+            target.object(row, depth + 1)
+            height = max(height, 1 + self.heights[target.key(row["object_id"])])
+        if resolved != {identity(d) for d in dependencies}:
+            self.reject("UNVERIFIED_VIEW_DEPENDENCY")
         return height

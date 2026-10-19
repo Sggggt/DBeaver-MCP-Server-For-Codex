@@ -77,12 +77,13 @@ def open_session(source, settings, database, timeout_ms=None):
     error = None
     try:
         session = Session(connection, budget)
+        session.database = target.database
         with error_stage("session"), connection.cursor() as cursor:
             # Fixed settings only; no persistent database changes.
             lock_timeout = max(1, min(settings.lock_timeout_ms, budget))
             session.execute(
                 cursor,
-                f"SET LOCK_TIMEOUT {lock_timeout}; SET XACT_ABORT ON; SET TEXTSIZE 16384",
+                f"SET LOCK_TIMEOUT {lock_timeout}; SET XACT_ABORT ON; SET TEXTSIZE 16384; SET QUOTED_IDENTIFIER ON",
             )
         observed = session.rows(
             "SELECT CAST(SERVERPROPERTY('ProductVersion') AS varchar(32)) AS version, "

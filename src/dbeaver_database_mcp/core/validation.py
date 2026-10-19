@@ -204,3 +204,32 @@ def validate_query(query: dict) -> None:
                 code="INVALID_PARAMETER",
                 path="query.limit",
             )
+
+
+def reject_qualified_targets(query):
+    """Other engines must not silently ignore SQL Server target qualifiers."""
+
+    def walk(node):
+        if isinstance(node, dict):
+            if "database" in node or "server" in node:
+                raise QueryRejected(
+                    "该数据库不支持查询中的跨库或链接目标。",
+                    code="UNSUPPORTED_CAPABILITY",
+                    stage="compile",
+                )
+            for key, value in node.items():
+                if key == "value":
+                    continue
+                if key == "values":
+                    if isinstance(value, list):
+                        for row in value:
+                            if isinstance(row, list):
+                                for expr in row:
+                                    walk(expr)
+                    continue
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(query)

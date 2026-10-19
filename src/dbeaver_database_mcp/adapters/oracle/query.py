@@ -714,7 +714,10 @@ class Compiler:
 
 
 def compile_query(schema, query, catalog, max_identifier_bytes=30):
+    from ...core.validation import reject_qualified_targets
+
     validate_query(query)
+    reject_qualified_targets(query)
     compiler = Compiler(schema, catalog, max_identifier_bytes)
     statement, names = compiler.query(query, top=True)
     return BuiltQuery(

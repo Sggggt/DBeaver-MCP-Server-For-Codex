@@ -344,6 +344,8 @@ FILTER = {
 SOURCE = obj(
     {
         "table": NAME,
+        "database": NAME,
+        "server": NAME,
         "schema": NAME,
         "alias": NAME,
         "function": obj(
@@ -371,6 +373,8 @@ JOIN = obj(
 )
 QUERY_PROPERTIES = {
     "table": NAME,
+    "database": NAME,
+    "server": NAME,
     "schema": NAME,
     "alias": NAME,
     "only": {"type": "boolean"},

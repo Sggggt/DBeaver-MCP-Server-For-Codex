@@ -19,12 +19,14 @@ from ...core.validation import validate_query
 from .catalog_guard import CatalogGuard
 from .connection import parse_configuration
 from .errors import translate_database_error
+from .plan import explain
 from .query import (
     AGGREGATES,
     CONDITIONS,
     CONTEXT,
     FUNCTIONS,
     TYPES,
+    WINDOWS,
     compile_query,
     identifier,
 )
@@ -106,7 +108,7 @@ class SQLServerAdapter(DatabaseAdapter):
             "aggregates": list(AGGREGATES),
             "conditions": CONDITIONS,
             "casts": list(TYPES),
-            "windows": [],
+            "windows": sorted(set(WINDOWS) | set(AGGREGATES)),
             "object_types": list(OBJECT_TYPES),
             "features": [
                 "joins_on",
@@ -117,12 +119,23 @@ class SQLServerAdapter(DatabaseAdapter):
                 "top",
                 "projected_output_ordering",
                 "view_execution",
+                "cte",
+                "subquery",
+                "correlated_subquery",
+                "set_operations",
+                "windows",
+                "cross_database_dependencies",
+                "linked_server_dependencies",
+                "alias_types",
             ],
             "conditional_features": {
                 "offset": "SQL Server 2012+ and explicit projected output ordering",
-                "view_execution": "visible QUOTED_IDENTIFIER ON definition; allowlisted SELECT syntax and builtins; recursively verified local table/view dependencies; database VIEW DEFINITION and SELECT on sys.sql_expression_dependencies",
+                "view_execution": "visible definition parsed with its saved QUOTED_IDENTIFIER semantics; recursively verified table/view dependencies; database VIEW DEFINITION and SELECT on sys.sql_expression_dependencies in every target database",
+                "linked_server_dependencies": "existing SQL Server link with allowlisted Microsoft provider, DATA ACCESS and RPC OUT; fixed parameterized catalog SELECTs through sys.sp_executesql under the linked login; no second linked-server hop",
+                "windows": "ranking on 2008+; offset/value/distribution functions and ROWS/RANGE frames on 2012+",
+                "explain": "estimated SHOWPLAN_XML; native SHOWPLAN permissions in all referenced databases; no business-query execution",
             },
-            "explain": False,
+            "explain": True,
             "database_settings": "database_properties",
             "postgresql_logs": False,
             "view_catalog": {
@@ -142,17 +155,17 @@ class SQLServerAdapter(DatabaseAdapter):
             "unsupported": [
                 "server_enforced_read_only_transaction",
                 "encrypted_or_unverifiable_views",
-                "cross_database_dependencies",
                 "user_defined_functions",
                 "synonyms",
                 "computed_columns",
-                "clr_or_alias_types",
+                "clr_types",
+                "table_types",
+                "multihop_linked_servers",
                 "row_security_policies",
                 "external_tables",
-                "cte",
-                "subquery",
-                "set_operations",
-                "windows",
+                "recursive_cte",
+                "intersect_all",
+                "except_all",
                 "aggregate_filter",
                 "joins_using",
                 "lateral",
@@ -466,11 +479,11 @@ class SQLServerAdapter(DatabaseAdapter):
             dependencies_status = "permission_denied"
             if access["view_allowed"] == 1 and access["select_allowed"] == 1:
                 dependencies = session.rows(
-                    "SELECT DISTINCT TOP (201) d.referenced_database_name AS [database], "
+                    "SELECT DISTINCT TOP (201) d.referenced_server_name AS [server], d.referenced_database_name AS [database], "
                     "d.referenced_schema_name AS [schema],d.referenced_entity_name AS name, "
                     "CASE WHEN d.referenced_server_name IS NULL THEN 0 ELSE 1 END AS remote "
                     "FROM sys.sql_expression_dependencies d WHERE d.referencing_id=%(id)s "
-                    "ORDER BY d.referenced_database_name,d.referenced_schema_name,d.referenced_entity_name,remote",
+                    "ORDER BY d.referenced_server_name,d.referenced_database_name,d.referenced_schema_name,d.referenced_entity_name,remote",
                     {"id": oid},
                     limit=201,
                 )
@@ -559,9 +572,7 @@ class SQLServerAdapter(DatabaseAdapter):
                 unsupported("result_type")
             else:
                 projections.append(column)
-        statement = (
-            "SELECT " + ", ".join(projections) + " FROM (" + built.statement + ") AS q"
-        )
+        statement = built.wrap("SELECT " + ", ".join(projections) + " FROM (", ") AS q")
         if built.ordering:
             statement += " ORDER BY " + ", ".join(
                 "q." + identifier(name) + " " + direction.upper()
@@ -573,9 +584,7 @@ class SQLServerAdapter(DatabaseAdapter):
         self, source, database, schema, query, *, mode="execute", timeout_ms=None
     ):
         validate_query(query)
-        if mode == "explain":
-            unsupported("explain")
-        if mode not in {"analyze", "execute"}:
+        if mode not in {"analyze", "execute", "explain"}:
             raise QueryRejected("未知查询模式。", code="INVALID_PARAMETER")
         if query["limit"] > self.settings.hard_max_rows:
             raise QueryRejected(
@@ -586,10 +595,26 @@ class SQLServerAdapter(DatabaseAdapter):
             with error_stage("safety"):
                 catalog = CatalogGuard(session).prepare(query, schema)
             built = compile_query(schema, query, catalog, session.major_version)
+            if mode == "explain":
+                with error_stage("explain"):
+                    plan = explain(
+                        session, built, min(self.settings.max_result_bytes // 2, 262144)
+                    )
+                return self._response(
+                    source,
+                    database,
+                    schema,
+                    analysis=built.summary(),
+                    columns=list(built.outputs),
+                    plan=plan,
+                    read_only=READ_ONLY
+                    | {"database_read_only": session.database_read_only},
+                    permission_scope="database_account",
+                )
             with error_stage("describe"), session.connection.cursor() as cursor:
                 session.execute(
                     cursor,
-                    "SELECT TOP (0) * FROM (" + built.statement + ") AS q",
+                    built.wrap("SELECT TOP (0) * FROM (", ") AS q"),
                     built.parameters,
                 )
                 description = cursor.description
